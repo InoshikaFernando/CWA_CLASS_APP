@@ -78,11 +78,38 @@ def _audience(delivery, has_activity):
     return ', '.join(who) if who else 'Nobody (silent)'
 
 
-def _window(period_type, reference, term):
+def _resolve_term(school, reference, requested=None):
+    """Which term this page is showing, and whether it is still running.
+
+    Returns ``(term, partial, terms)`` where *terms* is everything the school
+    may choose between. ONE resolver, used by the table and by the single
+    student's page behind "View report": they used to hold a copy each, and a
+    copy each is how a link opens a different term from the row it came from.
+
+    ``?term=<id>`` picks a specific term, validated against this school's own
+    terms — a foreign or future id falls back to the default rather than 404ing
+    a reader out of a page they may legitimately read.
+    """
+    terms = periods.reviewable_terms(school, reference)
+    term = None
+    if requested and str(requested).isdigit():
+        term = next((t for t in terms if t.id == int(requested)), None)
+    if term is None:
+        term = periods.default_term(terms, reference)
+    return term, periods.term_in_progress(term, reference), terms
+
+
+def _window(period_type, reference, term, partial=False):
+    """The window on screen. ``(start, end)``; ``(None, None)`` if there is none.
+
+    A term still running stops at *reference*, not at its end date — see
+    ``periods.term_window``.
+    """
     if period_type == periods.TERM:
         if term is None:
             return None, None
-        return term.start_date, term.end_date
+        start, end, _partial = periods.term_window(term, reference)
+        return start, end
     return periods.window_for(period_type, reference)
 
 
@@ -149,7 +176,7 @@ def _requested_subject(entry, raw):
 
 
 def _preview_row(student, entry, subject, class_ids, period_type, start, end,
-                 term, school):
+                 term, school, partial=False):
     """One student's report for one subject — computed, never stored.
 
     A preview that wrote rows would stamp delivery state and leave the real
@@ -159,6 +186,7 @@ def _preview_row(student, entry, subject, class_ids, period_type, start, end,
         student, period_type, start, end, term=term,
         classroom_ids=class_ids, subject=subject,
         content=entry['content'].get(subject.id if subject else None),
+        partial=partial,
     )
     totals = data['totals']
     # The same rule the generator applies, not a stricter local one:
@@ -259,15 +287,13 @@ class ReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
             period_type = periods.WEEKLY
 
         reference = periods.today()
-        term = None
+        term, term_partial, terms = (None, False, [])
         if period_type == periods.TERM:
-            candidates = [
-                t for t in periods.most_recent_ended_terms(reference)
-                if t.school_id == school.id
-            ]
-            term = candidates[0] if candidates else None
+            term, term_partial, terms = _resolve_term(
+                school, reference, request.GET.get('term'),
+            )
 
-        start, end = _window(period_type, reference, term)
+        start, end = _window(period_type, reference, term, term_partial)
 
         classroom = None
         if request.GET.get('classroom'):
@@ -305,6 +331,7 @@ class ReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
                     rows.append(_preview_row(
                         student, entry, subjects.get(subject_id), class_ids,
                         period_type, start, end, term, school,
+                        partial=term_partial,
                     ))
 
             if not rows:
@@ -339,12 +366,21 @@ class ReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
             'period_type': period_type,
             'period_choices': PeriodReport.PERIOD_CHOICES,
             'period_label': (
-                periods.label_for(period_type, start, end, term)
+                periods.label_for(
+                    period_type, start, end, term, partial=term_partial)
                 if start else None
             ),
             'start': start,
             'end': end,
             'term': term,
+            'terms': terms,
+            # So the selector can mark which term is still running. Passed
+            # rather than computed in the template: "today" is the one value
+            # the whole page's partial/final split turns on.
+            'today': reference,
+            # A term still running is reviewable and NOT sendable; the template
+            # drops the send button and says why. See services.PartialWindowError.
+            'term_partial': term_partial,
             'classroom': classroom,
             'subscribed_only': subscribed_only,
             'classrooms': ClassRoom.objects.filter(
@@ -377,18 +413,35 @@ class ReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
             return redirect('progress:report_preview')
 
         reference = periods.today()
-        term = None
+        term, term_partial = None, False
         if period_type == periods.TERM:
-            candidates = [
-                t for t in periods.most_recent_ended_terms(reference)
-                if t.school_id == school.id
-            ]
-            term = candidates[0] if candidates else None
+            # The term the reader was looking at, resolved the same way the
+            # page resolved it: sending a different term from the one on screen
+            # is the exact failure this page exists to prevent.
+            term, term_partial, _terms = _resolve_term(
+                school, reference, request.POST.get('term_id'),
+            )
             if term is None:
                 messages.error(
                     request, 'No term has ended yet, so there is nothing to send.',
                 )
                 return redirect('progress:report_preview')
+            if term_partial:
+                # The template does not offer the button here, so this is a
+                # hand-made POST. Refused rather than obeyed: a stored mid-term
+                # report takes the place of the real end-of-term one, and the
+                # family never receives that. See services.PartialWindowError.
+                messages.error(
+                    request,
+                    f'{term.name} has not ended yet, so its report cannot be '
+                    f'sent — a report stored now would take the place of the '
+                    f'real end-of-term one. Review it here as often as you '
+                    f'like; it sends once the term closes.',
+                )
+                return redirect(
+                    f'{request.path}?school={school.id}'
+                    f'&period={period_type}&term={term.id}'
+                )
 
         classroom = None
         if request.POST.get('classroom_id'):
@@ -396,7 +449,7 @@ class ReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
                 ClassRoom, id=request.POST['classroom_id'], school=school,
             )
 
-        start, end = _window(period_type, reference, term)
+        start, end = _window(period_type, reference, term, term_partial)
         # The scope the previewed page was showing, carried through the form:
         # sending a wider set than the one on screen is the exact failure the
         # preview exists to prevent.
@@ -413,6 +466,7 @@ class ReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
             detail={
                 'period_type': period_type,
                 'period': counts['period'],
+                'term_id': term.id if term else None,
                 'classroom_id': classroom.id if classroom else None,
                 'subscribed_only': subscribed_only,
                 'generated': counts['generated'],
@@ -472,19 +526,26 @@ class ReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
         target = f'?school={school.id}&period={period_type}'
         if classroom:
             target += f'&classroom={classroom.id}'
+        if term:
+            target += f'&term={term.id}'
         if subscribed_only:
             target += '&subscribed=1'
         return redirect(f'{request.path}{target}')
 
 
 def _preview_query(school, period_type, classroom=None, student=None,
-                   subscribed_only=False):
+                   subscribed_only=False, term=None):
     """The query string that pins a preview to one scope, and optionally one student."""
     query = f'?school={school.id}&period={period_type}'
     if classroom is not None:
         query += f'&classroom={classroom.id}'
     if student is not None:
         query += f'&student={student.id}'
+    # Without this, opening one student from a term the reader had *chosen*
+    # dropped them back onto the default term — a different report under the
+    # same link.
+    if term is not None:
+        query += f'&term={term.id}'
     # Carried so "Back to preview" returns to the filtered list the reader came
     # from rather than silently widening it.
     if subscribed_only:
@@ -527,15 +588,13 @@ def _resolve_one(request):
         raise Http404
 
     reference = periods.today()
-    term = None
+    term, term_partial = None, False
     if period_type == periods.TERM:
-        candidates = [
-            t for t in periods.most_recent_ended_terms(reference)
-            if t.school_id == school.id
-        ]
-        term = candidates[0] if candidates else None
+        term, term_partial, _terms = _resolve_term(
+            school, reference, request.GET.get('term'),
+        )
 
-    start, end = _window(period_type, reference, term)
+    start, end = _window(period_type, reference, term, term_partial)
     if start is None:
         raise Http404
 
@@ -573,6 +632,7 @@ def _resolve_one(request):
         student, period_type, start, end, term=term,
         classroom_ids=class_ids, subject=subject,
         content=entry['content'].get(subject.id if subject else None),
+        partial=term_partial,
     )
     # Unsaved on purpose: this is the object the real send would create, built
     # the same way, and never written. Constructing it means the preview page
@@ -583,7 +643,7 @@ def _resolve_one(request):
         period_type=period_type, period_start=start, period_end=end,
         data=data,
     )
-    return school, report, period_type, classroom
+    return school, report, period_type, classroom, term
 
 
 class ReportPreviewDetailView(RoleRequiredMixin, ModuleRequiredMixin, View):
@@ -596,14 +656,15 @@ class ReportPreviewDetailView(RoleRequiredMixin, ModuleRequiredMixin, View):
         if _no_student_yet(request):
             return redirect('progress:report_preview')
 
-        school, report, period_type, classroom = _resolve_one(request)
+        school, report, period_type, classroom, term = _resolve_one(request)
         subscribed_only = request.GET.get('subscribed') == '1'
         scope = _preview_query(
             school, period_type, classroom, subscribed_only=subscribed_only,
+            term=term,
         )
         student_scope = _preview_query(
             school, period_type, classroom, student=report.student,
-            subscribed_only=subscribed_only,
+            subscribed_only=subscribed_only, term=term,
         )
         return render(request, DETAIL_TEMPLATE, report_detail_context(
             report, request.user, preview=True,
@@ -623,7 +684,7 @@ class ReportPreviewPdfView(RoleRequiredMixin, ModuleRequiredMixin, View):
         if _no_student_yet(request):
             return redirect('progress:report_preview')
 
-        _school, report, _period_type, _classroom = _resolve_one(request)
+        _school, report, _period_type, _classroom, _term = _resolve_one(request)
         pdf = render_report_pdf(report)
         filename = (
             f'preview-{report.student.username}-{report.period_type}-'

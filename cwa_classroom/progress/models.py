@@ -171,6 +171,18 @@ class PeriodReport(models.Model):
         return self.data.get('basic_facts') or {}
 
     @property
+    def is_partial(self):
+        """True for a report built over a window that had not closed yet.
+
+        Only ever true of an *unsaved* preview of a term still running
+        (CPP-425): the generator refuses to write one, because a term report
+        keys on the term's start date and a stored mid-term row would be the
+        row the real end-of-term report needs. Reports written before the key
+        existed are not partial, which is what the missing-key default says.
+        """
+        return bool((self.data.get('period') or {}).get('partial'))
+
+    @property
     def has_activity(self):
         """True when the student actually did something in the window.
 

@@ -1,6 +1,6 @@
 # Report Automation — Whole-School Sending
 
-**Jira:** CPP-422 | **Builds on:** CPP-388 (period reports), CPP-395 (per-subject reports)
+**Jira:** CPP-422, CPP-425 | **Builds on:** CPP-388 (period reports), CPP-395 (per-subject reports)
 
 ## Problem
 
@@ -141,6 +141,40 @@ Nothing about this is allowed to be silent.
   already gone, and — when `email_parents_no_data` is off — that they will be
   written to by nobody.
 
+## Reviewing the term that is still running (CPP-425)
+
+Everything term-shaped above is built on terms that have **ended**
+(`periods.most_recent_ended_terms` filters `end_date__lt=reference`). That left
+a teacher unable to see how a class was tracking until the term was over, and a
+school in its first term staring at "No term has ended yet".
+
+The preview now carries a **term selector** listing every term that has begun,
+the running one included. The default is unchanged — the term that just
+finished. A running term is reported from its start **to today**, not to its end
+date: a window running into the future would divide this term's work by a whole
+term's worth of homework and report every child as behind. Its label carries
+`(to date)`, which travels into the snapshot, the page and the PDF.
+
+**It can be reviewed and never sent, and that is structural.** `PeriodReport` is
+unique on `(student, period_type, period_start, subject)` and a term report keys
+`period_start = term.start_date`, so a row stored mid-term *is* the row the real
+end-of-term report needs: `generate_report` would find it and hand it back
+untouched, and both delivery stamps are no-ops once set. The family would never
+receive their end-of-term report. The refusal therefore sits in three places:
+
+1. `services.generate_report` raises `PartialWindowError` for any term window
+   stopping short of `term.end_date` — judged on the **window**, not the clock,
+   so `--date` can still regenerate a term that closed months ago;
+2. the preview POST refuses a running term and says what it would cost (the
+   button is not rendered, so this only fires for a hand-made POST);
+3. the template shows a *Review only* badge in place of the button.
+
+The POST also honours the reviewed `term_id` rather than re-deriving "the most
+recent ended term" — with a selector on the page, re-deriving would break the
+preview's one contract. `_resolve_term` is shared by the table and the
+single-student page, and the chosen term rides the scope query string, so
+opening a student and coming back cannot switch terms underneath the reader.
+
 ## Files
 
 | File | Change |
@@ -160,3 +194,17 @@ Nothing about this is allowed to be silent.
 | `progress/tests/test_generate_command.py` | `WholeSchoolCommandTests` |
 | `ui_tests/progress/test_whole_school_outreach_ui.py` | new — 6 Playwright tests |
 | `.github/workflows/ci.yml` | `progress` filter watches `billing/selectors.py` and the new email template |
+
+### CPP-425
+
+| File | Change |
+|------|--------|
+| `progress/periods.py` | `reviewable_terms`, `term_in_progress`, `term_window`, `default_term`; `label_for(partial=)` |
+| `progress/reports.py` | `build_report_data(partial=)`, recorded in the snapshot |
+| `progress/models.py` | `PeriodReport.is_partial` |
+| `progress/services.py` | `PartialWindowError` and the guard in `generate_report` |
+| `progress/views_preview.py` | `_resolve_term` shared by the table and the detail page; term in the scope query; the POST guard |
+| `templates/progress/report_preview.html` | term selector, review-only badge, the note |
+| `templates/progress/period_report_detail.html` | partial banner |
+| `progress/tests/test_current_term_review.py` | new — 32 tests |
+| `ui_tests/progress/test_current_term_review_ui.py` | new — 5 Playwright tests |

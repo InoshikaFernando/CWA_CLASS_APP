@@ -146,6 +146,22 @@ def students_for_period(period_type, school=None, classroom=None,
     return plan
 
 
+class PartialWindowError(ValueError):
+    """Raised when a run is asked to store a report for a window still open.
+
+    A term report keys on ``(student, term, period_start)`` where
+    *period_start* is the term's start date, so a row written mid-term IS the
+    row the real end-of-term report needs: ``generate_report`` would find it
+    and return it untouched, and ``notify_report`` and
+    ``email_parents_term_report`` are both no-ops once stamped. The family
+    would never receive the end-of-term report at all.
+
+    Staff can review a running term as much as they like — the preview builds
+    the snapshot and discards it (CPP-425). What they cannot do is send one,
+    and this is the line that makes that structural rather than a habit.
+    """
+
+
 def generate_report(student, period_type, start, end, term=None, force=False,
                     cohort_cache=None, classroom_ids=None, school=None,
                     subject=None, content=None):
@@ -154,6 +170,9 @@ def generate_report(student, period_type, start, end, term=None, force=False,
     Returns ``(report, created)``. An existing report is left alone unless
     *force* is set, in which case only ``data`` is recomputed — the delivery
     timestamps stay put so a re-computation never re-notifies.
+
+    Raises :class:`PartialWindowError` for a term that has not ended. See that
+    class for why storing one would cost the family their real report.
 
     *cohort_cache* is passed straight through to the builder; ``run_period``
     supplies one for the whole run so a class's award figures are computed once
@@ -167,6 +186,20 @@ def generate_report(student, period_type, start, end, term=None, force=False,
     # Head of Institute is allowed to open it.
     if school is None:
         school = term.school if term is not None else student_school(student)
+
+    # Judged on the WINDOW, not on the wall clock: the command can legitimately
+    # be run with --date to regenerate a term that closed months ago, and a
+    # clock-based test would refuse the very reports it exists to produce. What
+    # makes a term report partial is that its window stops short of the term's
+    # end — which is exactly what a mid-term review does, and exactly what must
+    # never be stored.
+    if term is not None and term.end_date is not None and end < term.end_date:
+        raise PartialWindowError(
+            f'{term} runs to {term.end_date:%d %b %Y}, so a report covering '
+            f'only up to {end:%d %b %Y} cannot be stored — it would take the '
+            f'place of the real end-of-term report, which the family would '
+            f'then never receive. Review it from Preview Reports instead.'
+        )
 
     report = PeriodReport.objects.filter(
         student=student, period_type=period_type, period_start=start,
