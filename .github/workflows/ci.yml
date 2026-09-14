@@ -6,8 +6,20 @@ on:
   # nothing new while costing a second full matrix per release.
   push:
     branches: [test]
+  # `dev` is here because it is a DEPLOYED environment: deploy-dev.yml ships
+  # every push to `dev` to the dev site. It was missing, and the Languages app —
+  # developed entirely on `dev`, never merged to `test` — was therefore built
+  # and deployed without CI ever running on it. That is how a subject app
+  # shipped with seed data no migration created: a PR into `dev` got no checks
+  # at all, and a PR showing no checks looks exactly like a PR that passed.
+  #
+  # PR validation only, deliberately not `push:`. A push to `dev` would run the
+  # FULL matrix (the push escape ignores the path filters), ~65 billed minutes
+  # per merge, and this account has hit its Actions spending limit once already
+  # — which stopped a production deploy. The path-filtered PR run is the cheap
+  # 90%; `test` remains the unfiltered gate.
   pull_request:
-    branches: [main, test]
+    branches: [main, test, dev]
 
 concurrency:
   group: ci-${{ github.ref }}

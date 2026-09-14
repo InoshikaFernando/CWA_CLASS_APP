@@ -663,6 +663,24 @@ def test_the_full_matrix_still_runs_on_a_push_to_test():
     assert 'test' in triggers['push']['branches']
 
 
+def test_a_pr_into_dev_is_tested():
+    """`dev` is a deployed environment, so a PR into it must run CI.
+
+    deploy-dev.yml ships every push to `dev` to the dev site. While `dev` was
+    missing from this list, a PR into it got NO checks at all — and a PR showing
+    no checks is indistinguishable from one that passed. The Languages app was
+    built and deployed entirely on `dev`, never reaching `test`, so nothing in
+    CI ever ran on it; that is how it shipped with seed data no migration
+    created.
+    """
+    data = _ci_data()
+    triggers = data.get('on', data.get(True))
+    assert 'dev' in triggers['pull_request']['branches'], (
+        'ci.yml no longer runs on pull requests into `dev`. Work merged there '
+        'deploys to the dev site untested, and the PR shows no checks rather '
+        'than a failure.')
+
+
 def test_a_push_to_main_does_not_re_run_the_matrix():
     """A release merge lands the identical tree that just passed on `test`."""
     data = _ci_data()
