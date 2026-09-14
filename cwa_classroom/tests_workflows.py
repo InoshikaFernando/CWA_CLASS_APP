@@ -1214,6 +1214,54 @@ def test_the_publish_cron_is_installed():
 _SSH_KEEPALIVE_OPTS = ('ServerAliveInterval', 'ServerAliveCountMax')
 
 
+def test_a_fresh_database_migrate_still_runs_somewhere():
+    """The only job that executes data migrations at all.
+
+    Every pytest job builds its database from the models — conftest.py's
+    django_db_use_migrations returns False on SQLite — so RunPython never runs
+    under pytest. Without this job, a data migration that seeds nothing, or a
+    migration chain that cannot apply from zero, is green everywhere and only
+    fails on the droplet. That is not hypothetical: it is how the Languages
+    seed data (four languages, plus seven Tamil topics) reached dev as content
+    no database ever had, and how a geometry seed that could not replay on a
+    fresh database got as far as the dev deploy.
+    """
+    job = _ci()['jobs'].get('fresh-db-migrate')
+    assert job, (
+        "ci.yml no longer has a fresh-db-migrate job, so nothing runs the "
+        "migration chain end to end. Data migrations would go back to being "
+        "verified for the first time on a deploy.")
+
+    steps = ' '.join(str(step.get('run', '')) for step in job['steps'])
+    assert 'manage.py migrate' in steps, (
+        'fresh-db-migrate no longer runs `manage.py migrate`.')
+    assert 'check_language_seed' in steps, (
+        'fresh-db-migrate no longer asserts the seed data landed. `migrate` '
+        'exiting 0 only means no migration raised — it says nothing about '
+        'whether a data migration wrote anything, which is the failure this '
+        'job exists to catch.')
+
+    services = job.get('services') or {}
+    assert 'mysql' in services, (
+        'fresh-db-migrate must run against MySQL. It is the production backend, '
+        'and migrations in billing/, homework/ and classroom/ carry raw MySQL '
+        'SQL that cannot execute on SQLite at all.')
+
+
+def test_the_fresh_db_filter_watches_every_migration_directory():
+    """A filter that misses an app's migrations makes the job quiet, not red."""
+    patterns = _ci()['jobs']['changes']['steps'][1]['with']['filters']
+    migrations_filter = yaml.safe_load(patterns)['migrations']
+    assert any('migrations' in pattern for pattern in migrations_filter), (
+        'the `migrations` path filter no longer watches any migrations '
+        'directory, so a new data migration would not trigger the only job '
+        'that runs it')
+    assert any('seed_data' in pattern for pattern in migrations_filter), (
+        'the `migrations` path filter no longer watches languages/seed_data.py. '
+        'Seed content can then change without the fresh-database gate running, '
+        'which is exactly the blind spot that lost fr/zh/ja/ko.')
+
+
 @pytest.mark.parametrize('path', _workflow_files(), ids=lambda p: p.name)
 def test_every_ssh_call_keeps_its_connection_alive(path):
     text = path.read_text(encoding='utf-8')
