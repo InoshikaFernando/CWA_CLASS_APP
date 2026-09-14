@@ -313,6 +313,11 @@ jobs:
               - 'cwa_classroom/billing/**'
               - 'cwa_classroom/classroom/**'
               - 'cwa_classroom/templates/billing/**'
+              # The group drives the super-admin billing screens too (applying a
+              # discount code to a school's subscription), and those templates
+              # live under admin_dashboard/. Without this entry a change to one
+              # of them runs no UI test at all — the tests go quiet, not red.
+              - 'cwa_classroom/templates/admin_dashboard/billing/**'
               - 'cwa_classroom/templates/invoicing/**'
               - 'cwa_classroom/templates/accounting/**'
               - 'cwa_classroom/templates/reports/**'
