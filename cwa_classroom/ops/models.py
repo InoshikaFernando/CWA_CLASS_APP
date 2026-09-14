@@ -96,3 +96,84 @@ class OpsSnapshot(models.Model):
             'Redis': self.svc_redis,
             'Caddy': self.svc_caddy,
         }
+
+
+class FeatureFlag(models.Model):
+    """A feature that can be dark in one environment and live in another.
+
+    The problem this solves is shipping unfinished work. Without it, code that
+    is not ready cannot be merged, so it sits on a long-lived branch drifting
+    away from ``test`` until the merge is the risky part. With it, the code
+    merges immediately and stays inert until somebody turns it on.
+
+    **The environment axis is free, and that is the point.** Test and
+    production have separate databases, so a flag row on test says nothing
+    about production. ``language`` can be ``pilot`` on test while production
+    still reads ``off``; promoting the code does not promote the decision. No
+    env var to remember, no deploy to change your mind.
+
+    **The school axis is the ``pilot`` state.** Turn a feature on for Code
+    Wizards alone, watch it for a week, then move it to ``on`` — or back to
+    ``off``, which no customer ever notices because none of them could see it.
+
+    Not to be confused with a module, which answers a different question:
+
+    * A **module** is an entitlement — has this school *paid* for it.
+    * A **flag** is a kill switch — is this code safe to run at all.
+
+    They compose. A paid feature that is still settling carries both: the flag
+    keeps it dark while it is unfinished, and the module decides who may buy it
+    once it is not. A flag that is off beats a module that is bought, because
+    "we are not confident in this code" outranks "they paid for it".
+    """
+
+    OFF = 'off'
+    PILOT = 'pilot'
+    ON = 'on'
+    ROLLOUT_CHOICES = [
+        (OFF, 'Off — nobody'),
+        (PILOT, 'Pilot — only the schools listed below'),
+        (ON, 'On — every school'),
+    ]
+
+    slug = models.SlugField(
+        max_length=64, unique=True,
+        help_text='The name used in code, e.g. "language".',
+    )
+    description = models.TextField(
+        blank=True,
+        help_text='What this turns on, and what to watch while it is in pilot.',
+    )
+    rollout = models.CharField(
+        max_length=10, choices=ROLLOUT_CHOICES, default=OFF,
+        help_text=(
+            'Off is the default and the safe answer: a flag nobody has decided '
+            'about yet is one nobody should be running.'
+        ),
+    )
+    schools = models.ManyToManyField(
+        'classroom.School', blank=True, related_name='feature_flags',
+        help_text='Schools this is on for while rollout is "pilot".',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['slug']
+
+    def __str__(self):
+        return f'{self.slug} ({self.rollout})'
+
+    def is_enabled_for(self, school=None):
+        """Whether this flag is on for ``school``.
+
+        ``pilot`` with no school is False, not True: a background job or a
+        console script has no school to match, and a piloted feature running
+        unattended across every tenant is the failure the pilot exists to
+        avoid.
+        """
+        if self.rollout == self.ON:
+            return True
+        if self.rollout != self.PILOT or school is None:
+            return False
+        return self.schools.filter(pk=getattr(school, 'pk', school)).exists()
