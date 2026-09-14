@@ -15,11 +15,17 @@ database again.
 from datetime import timedelta
 
 # How far back the dashboard's "just reviewed" strip looks when offering to undo
-# a verdict. A verdict older than this is not one somebody is still undoing by
-# mistake, and listing a month-old review under "just reviewed" would be the
-# panel lying about what it shows.
+# a verdict, and how many it lists. A verdict older than the window is not one
+# somebody is still undoing by mistake, and listing a month-old review under
+# "just reviewed" would be the panel lying about what it shows.
+#
+# The limit is sized for how the page is actually used: a reviewer works down
+# the list in a sitting, so ten rows meant the eleventh verdict pushed the first
+# one out of reach — and the misclick somebody wants back is as likely to be
+# early in that sitting as late. This is the whole table of standing verdicts
+# inside the window, one row per question, so it stays small either way.
 RECENT_REVIEW_DAYS = 7
-RECENT_REVIEW_LIMIT = 10
+RECENT_REVIEW_LIMIT = 25
 
 # The issue code a reported question is raised under. It comes from the report
 # rows, not from ``verify_question``: the verifier has already passed the

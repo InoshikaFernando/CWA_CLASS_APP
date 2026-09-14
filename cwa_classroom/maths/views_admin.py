@@ -234,6 +234,7 @@ class QuestionReviewedView(SuperuserRequiredMixin, View):
             # An id that names nothing is a bug in the caller, not a no-op to
             # swallow: saying so beats a row that quietly stays put.
             note = f'No question {question_id} — nothing was reviewed.'
+            review = None
             failed = True
         else:
             review = record_review(
@@ -262,7 +263,13 @@ class QuestionReviewedView(SuperuserRequiredMixin, View):
                 request,
                 'admin_dashboard/question_health/_wrong_rate.html',
                 {**wrong_rate_context(), 'notice': note,
-                 'notice_level': 'error' if failed else 'ok'})
+                 'notice_level': 'error' if failed else 'ok',
+                 # The undo for the verdict this very line reports. The strip
+                 # at the bottom of the panel keeps it available afterwards,
+                 # but the moment somebody realises they clicked the wrong row
+                 # is the moment they read this line — so the way back is here,
+                 # not ten rows further down.
+                 'notice_undo_review_id': review.id if review else None})
 
         if failed:
             messages.error(request, note)
