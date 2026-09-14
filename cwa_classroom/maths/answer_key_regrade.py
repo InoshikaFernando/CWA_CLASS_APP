@@ -5,10 +5,26 @@ already sat it keeps the nought: in their history, in their teacher's view, and
 in the progress statistics built on top. That is the half of the repair the
 editor never did, and the half a parent actually notices.
 
-``regrade_question`` closes it. Called after a save that changed how a question
-marks, it re-marks every answer already recorded against the key as it now
-stands, and corrects the attempt totals and topic statistics those marks sit
-inside.
+``regrade_question`` closes it: it re-marks every answer already recorded
+against the key as it now stands, and corrects the attempt totals and topic
+statistics those marks sit inside.
+
+WHO ASKS FOR IT
+    The question editor's Save, but only behind two gates it checks itself
+    (``classroom.views_admin.GlobalQuestionEditView.post``):
+
+    * a tick box the person saving has to leave ticked. Re-marking is a
+      decision about children's records, not a side effect of pressing Save.
+      It arrives ticked from the wrong-answer leaderboard, where giving marks
+      back IS the job, and unticked from the question bank, where the same
+      editor does ordinary maintenance.
+    * ``grading_fingerprint`` below, so a save that did not change how the
+      question marks corrects nothing.
+
+    Both were added after the first version ran on every save: a typo fixed in
+    a stem re-ran today's grader over every answer ever given, and an admin
+    rewriting a question into a different one would have had its old answers
+    re-judged against a question nobody sat.
 
 ONE DIRECTION ONLY — wrong to right, never right to wrong.
     A mark already awarded stays awarded, exactly as
@@ -96,6 +112,42 @@ TYPED_REGRADABLE_FORMATS = ('text', 'set', 'algebra', 'equation', 'pattern')
 # missing its numbers grades against its rows like any other typed answer, and
 # the format rule above decides it.
 SELF_GRADED_ARITHMETIC_TYPES = ('column_operation', 'long_division')
+
+
+def grading_fingerprint(question):
+    """Everything about ``question`` that can change how an answer is marked.
+
+    Taken before and after an edit, so a save that did not touch grading does
+    not re-mark anything. Without it a typo fixed in the stem re-ran today's
+    grader over every answer ever given to that question, and where the grader
+    had improved since — the comma splitting, term order, division notation
+    that ``regrade_typed_answers`` exists to repair — marks moved on a save
+    nobody meant as a correction.
+
+    ``question_text`` counts ONLY for the pattern format, where the stem *is*
+    the answer key: ``grade_text_answer`` routes a pattern question to
+    ``grade_pattern(self.question_text, ...)`` and reads nothing else. For every
+    other format the stem is prose the grader never looks at, and treating an
+    edit to it as a grading change is what made the re-mark fire on saves that
+    changed nothing. The arithmetic types are worked out from stored numbers
+    (``column_result``, ``dividend``, ``divisor``), not from the stem, so they
+    do not need it either.
+
+    Only the fields the question editor can actually write are included. A spec
+    this form cannot reach cannot be changed by the save this guards.
+    """
+    from .models import Question
+
+    stem = (question.question_text
+            if question.answer_format == Question.ANSWER_FORMAT_PATTERN
+            else None)
+    return (
+        question.question_type,
+        question.answer_format,
+        stem,
+        tuple(sorted((answer.id, answer.answer_text, answer.is_correct)
+                     for answer in question.answers.all())),
+    )
 
 
 def can_regrade(question):

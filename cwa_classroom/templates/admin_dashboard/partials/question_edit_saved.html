@@ -4,7 +4,13 @@
 {# does not mean the edit was rejected. Reporting "Saved" over a question #}
 {# nobody can answer correctly would be the silent failure this page exists #}
 {# to remove. #}
-<div id="edit-saved" class="py-10 text-center">
+{# data-hold marks a "Saved" body that has something to READ. Both pages close #}
+{# this modal the moment they see #edit-saved, so before this every warning it #}
+{# carried — no correct option, several correct, marks given back — was rendered#}
+{# into a box that vanished in the same frame. A notice nobody can read is the  #}
+{# silent failure this page exists to remove.                                   #}
+<div id="edit-saved" class="py-10 text-center"
+     {% if no_correct or multi_correct or regraded %}data-hold="1"{% endif %}>
   <p class="text-sm font-semibold text-emerald-700">Saved.</p>
   {% if no_correct %}
   <p class="mt-2 text-xs text-rose-600">

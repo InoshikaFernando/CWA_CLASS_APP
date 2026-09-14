@@ -225,7 +225,11 @@ function openQuestionEditor(questionId) {
   var content = document.getElementById('edit-modal-content');
   modal.classList.remove('hidden');
   content.innerHTML = '<p class="py-12 text-center text-sm text-gray-400">Loading…</p>';
-  htmx.ajax('GET', '/admin-dashboard/global-questions/' + questionId + '/edit/',
+  // ?regrade=1 arrives the tick box already ticked. One endpoint serves this
+  // page and the question bank, so this parameter is the only thing that tells
+  // them apart — and here re-marking IS the job: the question is on this list
+  // because children lost marks to it.
+  htmx.ajax('GET', '/admin-dashboard/global-questions/' + questionId + '/edit/?regrade=1',
             {target: '#edit-modal-content', swap: 'innerHTML'});
 }
 
@@ -240,14 +244,20 @@ function closeEditModal() {
 // save the reader just made.
 document.body.addEventListener('htmx:afterSwap', function (evt) {
   var target = evt.detail.target;
-  if (target && target.id === 'edit-modal-content'
-      && target.querySelector('#edit-saved')) {
-    // Long enough to read what the save reported — including how many marks
-    // were given back, which is the part nobody can see from the question.
-    window.setTimeout(function () {
-      closeEditModal();
-      window.location.reload();
-    }, 2500);
+  var saved = (target && target.id === 'edit-modal-content')
+    ? target.querySelector('#edit-saved') : null;
+  if (!saved) { return; }
+  function done() {
+    closeEditModal();
+    window.location.reload();
+  }
+  // A save carrying a warning, or a report of marks given back, stays up long
+  // enough to be read — that report is the part nobody can see from the
+  // question itself. A bare "Saved." does not make the reader wait.
+  if (saved.hasAttribute('data-hold')) {
+    window.setTimeout(done, 3000);
+  } else {
+    done();
   }
 });
 </script>
