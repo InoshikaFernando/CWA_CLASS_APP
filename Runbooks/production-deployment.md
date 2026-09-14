@@ -9,10 +9,10 @@ password reset, log access). The supporting scripts live in
 
 - **Test site:** every merge to `test` auto-deploys (`deploy-test.yml`).
 - **Production:** every push to `main` auto-deploys (`deploy-prod.yml`) — in
-  practice, merging the weekly release PR. Also runnable on demand via
+  practice, merging a `test` → `main` promotion PR. Also runnable on demand via
   `workflow_dispatch`. See § 2 for the full model.
-  (There is no cron for this: the release *cadence* is weekly by convention,
-  but the *trigger* is the push to `main`, not a schedule.)
+  (There is no cron and **no fixed cadence**: production ships when a human
+  decides to promote. The *trigger* is the push to `main`, never a schedule.)
 
 Both run the same script the manual path does:
 
@@ -166,29 +166,30 @@ Two pipelines, matching the `test` → `main` branch flow:
 | Branch | Trigger | What it does | Workflow |
 |--------|---------|--------------|----------|
 | `test` | **every push** (each merged PR) | deploys to the **test site** | [`deploy-test.yml`](../.github/workflows/deploy-test.yml) |
-| `main` | **scheduled — Sunday ~03:00 NZ** (+ manual) | **auto-merges `test` → `main`, then deploys to production** | [`deploy-prod.yml`](../.github/workflows/deploy-prod.yml) |
+| `main` | **every push** (merging a promotion PR) + manual | deploys to **production** | [`deploy-prod.yml`](../.github/workflows/deploy-prod.yml) |
 
-So PRs land on `test` and deploy to the test site immediately. Once a week the
-prod job promotes the whole `test` branch into `main` (a `--no-ff` merge it
-pushes itself) and deploys the result to production — **no review PR, no manual
-step.** The deep health gate, the public smoke test, and the Sunday-morning
-timing are the only safety net; a `test → main` merge conflict aborts the
-release (nothing deploys). Both pipelines run `scripts/deploy.sh` over SSH and
-alert to `DEPLOY_ALERT_WEBHOOK` on failure.
+So PRs land on `test` and deploy to the test site immediately. Production is
+**released on demand**: when what has accumulated on `test` is ready to ship,
+someone opens a `test` → `main` pull request and merges it — that push to `main`
+is what deploys production. There is no schedule and no weekly (or any other)
+fixed cadence; nothing reaches production until a human decides to promote it.
+The deep health gate and the public smoke test guard the deploy itself. Both
+pipelines run `scripts/deploy.sh` over SSH and alert to `DEPLOY_ALERT_WEBHOOK`
+on failure.
 
-> **The prod schedule only fires from the default branch (`main`).** So
-> `deploy-prod.yml` must live on `main` — the initial `test` → `main`
-> reconciliation handles that. Need an off-schedule release (hotfix)? Use
-> **Actions → Deploy to Production → Run workflow** on `main`; it runs the same
-> promote-then-deploy.
+> **Promotion is a pull request, not a workflow step.** `deploy-prod.yml`
+> deliberately does not push `main` itself — the old in-workflow "promote
+> `test` → `main`" step could not push a protected branch (GH006) and blocked
+> every release. Separating promote (the PR) from deploy (this workflow) means
+> a protected `main` is a feature rather than a blocker, and no release PAT is
+> needed.
 >
-> **Branch protection:** the promote step pushes to `main` with `GITHUB_TOKEN`.
-> If `main` forbids direct pushes, add a `RELEASE_TOKEN` secret (a PAT allowed
-> to bypass) — it's preferred over `GITHUB_TOKEN` when set. Without one, a
-> protected `main` will reject the auto-push and the release fails.
+> Need to re-deploy the *current* `main` without promoting anything new (a
+> failed run, a rebuilt server)? **Actions → Deploy to Production → Run
+> workflow** on `main`.
 >
-> Cron is UTC with no DST awareness: `0 15 * * 6` = Sun 03:00 NZST (winter) /
-> 04:00 NZDT (summer). Switch to `0 14 * * 6` for 03:00 in summer.
+> A hotfix takes the same route, just faster: branch, PR into `test`, then a
+> promotion PR into `main`. Version bumps still follow § 2.1.
 
 ### 2.0 Enabling the deploys (one-time)
 
@@ -214,7 +215,6 @@ variables → Actions), so adopting this never breaks CI.
 | `DEPLOY_USER` | SSH user | `cwa` |
 | `DEPLOY_PATH` | repo path on the Droplet | `/home/cwa/CWA_CLASS_APP` |
 | `SMOKE_URL` | URL the post-deploy smoke hits | `https://www.wizardslearninghub.co.nz` |
-| `RELEASE_TOKEN` | token to push `main` if it's branch-protected | — (falls back to `GITHUB_TOKEN`) |
 
 **Shared:**
 
@@ -380,18 +380,64 @@ bash scripts/deploy.sh    # re-runs migrate/collectstatic/restart against the ol
 | Error cron check | `scripts/cron_check_errors.sh` |
 | Question-health cron | `scripts/cron_record_question_health.sh` — **must be installed**, or `/admin-dashboard/question-health/` stays empty forever |
 
+#### Cron drop-ins are installed by hand, NOT by a deploy
+
+Every scheduled job runs from an `/etc/cron.d/cwa-*` drop-in written by
+`scripts/install_crons.sh`. Nothing in the deploy path touches cron, so a
+drop-in added to the repo does not exist on a droplet until someone runs that
+script there.
+
+```bash
+# On the droplet, as root:
+/home/cwa/CWA_CLASS_APP/scripts/install_crons.sh --check   # report drift, write nothing
+sudo /home/cwa/CWA_CLASS_APP/scripts/install_crons.sh      # install / update them
+sudo /home/cwa/CWA_CLASS_APP_TEST/scripts/install_crons.sh test   # the test checkout
+```
+
+`--check` prints one line per drop-in (`ok` / `MISSING` / `STALE`) and exits
+non-zero if any are wrong, so it is safe to run any time and answers "is this
+droplet correctly wired?" without changing anything. Installing is idempotent
+and touches nothing but `/etc/cron.d` — safe on a live site, and `cron` re-reads
+that directory by itself, so no reload.
+
+The `test` profile suffixes both drop-in and log names (`cwa-publish-homework-test`,
+`publish_scheduled_homework-test.log`) so the two checkouts on a shared droplet
+cannot overwrite each other's jobs or logs. It omits `cwa-unpaid-access`, which
+is prod-only: live PageHits accrue only there.
+
+Expected drop-ins (prod): `cwa-ops`, `cwa-uploads`, `cwa-email`,
+`cwa-email-health`, `cwa-unpaid-access`, `cwa-progress-reports`,
+`cwa-publish-homework`, `cwa-scheduled-questions`.
+
+**Why this is a script of its own.** The drop-ins used to be inlined in
+`deploy/setup-app-prod.sh`, which is one-time provisioning: it also runs
+`apt-get upgrade -y`, overwrites `/etc/caddy/Caddyfile` and the gunicorn unit,
+rebuilds the venv and re-pulls the repo. Installing a crontab line therefore
+meant doing all of that to a live site, so nobody did — and
+`cwa-publish-homework`, added on 2026-08-31, was still missing from production
+on 2026-09-13. For two weeks the question automation built a homework set for
+every planned week and not one was ever sent, with nothing erroring; a teacher
+found it by noticing she published every set by hand. The attempt to fix it by
+re-running the provisioning script upgraded 35 packages on production and
+restarted Caddy under live traffic before being aborted.
+`tests_workflows.py` now fails the build if the drop-ins drift back into the
+provisioning script, or if `install_crons.sh` grows anything beyond writing
+cron files.
+
 #### Daily health checks
 
-Two watchdogs exist because their failure mode is silence, not an error. Both
-are installed by `deploy/setup-app-prod.sh`, both post to Discord, and both are
-also readable on the Ops dashboard (`/admin-dashboard/ops/`) and in
-`/api/health/?deep=1` under `warnings.*` — so a leak is visible without reading
-a chat channel.
+These watchdogs exist because their failure mode is silence, not an error. All
+are installed by `deploy/setup-app-prod.sh` and all are readable on the Ops
+dashboard (`/admin-dashboard/ops/`) and in `/api/health/?deep=1` under
+`warnings.*` — so a leak is visible without reading a chat channel. The first
+two also post to Discord; the publish check has no alert cron of its own on
+purpose, since a cron is the thing it is watching for.
 
 | Check | Cron drop-in | Log | Catches |
 |-------|--------------|-----|---------|
 | `check_email_queue_health` | `/etc/cron.d/cwa-email-health` (hourly) | `/var/log/cwa/email_queue_health.log` | the `process_email_queue` drain stopping — invoices read as issued but are never sent |
 | `check_unpaid_access` | `/etc/cron.d/cwa-unpaid-access` (daily 09:00) | `/var/log/cwa/unpaid_access.log` | a delinquent subscription still reaching restricted pages — the paywall letting unpaid accounts through |
+| `publish_scheduled_homework` | `/etc/cron.d/cwa-publish-homework` (every 5 min) | `/var/log/cwa/publish_scheduled_homework.log` | the publish cron stopping — scheduled homework (including every set the question automation builds) created, previewed, and never sent to the class |
 
 Run either by hand with `sudo -u cwa .../manage.py <command>` (§ 4.5); each
 exits non-zero when it finds something, which is the alert condition.
@@ -537,12 +583,14 @@ sudo chown cwa:cwa /etc/cwa/cwa.env && sudo chmod 600 /etc/cwa/cwa.env
 
 ## 6. Legacy: PythonAnywhere
 
-The app previously ran on PythonAnywhere (`*.pythonanywhere.com`). Migration to
-the DigitalOcean Droplet is tracked in `docs/MIGRATION_PLAN.md`; the
-prod→test DB-copy scripts (`scripts/restore_prod_to_test.sh`,
-`scripts/migrate_db_pa_to_do.sh`) still reference the PythonAnywhere MySQL host.
-Treat PythonAnywhere as the **legacy** path — new deploys go to the Droplet via
-this runbook. See `test-env-db-refresh.md` for the DB-side of the migration.
+The app previously ran on PythonAnywhere (`*.pythonanywhere.com`). The move to
+the DigitalOcean Droplet is tracked in `docs/MIGRATION_PLAN.md` and is done:
+`scripts/migrate_db_pa_to_do.sh` is the one-off that carried the data across and
+is the only script still naming the PythonAnywhere host. The prod→test and
+prod→dev copies (`scripts/restore_prod_to_test.sh`,
+`scripts/restore_prod_to_dev.sh`) read their credentials from `/etc/cwa/*.env`
+on the droplet, like the deploy does. Any instruction you find telling you to
+run either against PythonAnywhere is stale. See `test-env-db-refresh.md`.
 
 ---
 

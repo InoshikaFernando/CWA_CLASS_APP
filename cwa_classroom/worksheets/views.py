@@ -4,7 +4,6 @@ Worksheets views: PDF upload → AI extraction → preview → confirm → assig
 import json
 import os
 import logging
-import re
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +17,7 @@ from django.views import View
 
 from accounts.models import Role
 from billing.entitlements import get_school_for_user
+from classroom import progress_art
 from classroom.views import RoleRequiredMixin
 from rewards.models import PointsSource
 from rewards.services import award_points_safe, normalise
@@ -482,6 +482,10 @@ class WorksheetPreviewView(RoleRequiredMixin, View):
         for idx, q in enumerate(questions):
             prefix = f'q_{idx}_'
             q['include'] = request.POST.get(f'{prefix}include') == 'on'
+            # "Reviewed" tick on a flagged question — keeps needs_review (and its
+            # reason) for the record but stops the preview shouting about it, and
+            # persists so coming back to the page does not re-raise the alarm.
+            q['review_ack'] = request.POST.get(f'{prefix}review_ack') == 'on'
             q['question_text'] = request.POST.get(f'{prefix}text', q.get('question_text', ''))
             q['question_type'] = accepted_question_type(
                 request.POST.get(f'{prefix}type'), q.get('question_type', 'short_answer'))
@@ -883,6 +887,29 @@ def _get_student_assignment(request, pk):
     return assignment
 
 
+def _worksheet_progress_art(assignment, submission, student, answered, total):
+    """Pick (and pin) this student's progress-art picture for a worksheet.
+
+    The worksheet's own level is the better guide to the student's year than
+    the class it was assigned to — a Year 6 class can be set a Year 4 sheet —
+    so it wins, with the class as the fallback.
+    """
+    year_level = getattr(assignment.worksheet.level, 'level_number', None)
+    if year_level is None:
+        year_level = progress_art.year_level_for_classroom(assignment.classroom)
+
+    picture = progress_art.resolve(
+        submission.art_picture_key,
+        total,
+        f'worksheet-{assignment.pk}-{getattr(student, "pk", "")}',
+        year_level=year_level,
+    )
+    if submission.art_picture_key != picture.key:
+        submission.art_picture_key = picture.key
+        submission.save(update_fields=['art_picture_key'])
+    return progress_art.context(picture, done=answered, total=total)
+
+
 class WorksheetSessionView(LoginRequiredMixin, View):
     """Student: start or resume a worksheet session."""
 
@@ -920,6 +947,14 @@ class WorksheetSessionView(LoginRequiredMixin, View):
         question_number = assigned_qs.index(current_wq) + 1
         answered_count = len(answered_pairs)
 
+        # The progress-art picture that draws itself as the worksheet is worked
+        # through. A worksheet session is explicitly resumable across days, so
+        # the CHOICE of picture is pinned on the submission — how much of it is
+        # drawn needs no storing, because `answered_count` above already says.
+        art_ctx = _worksheet_progress_art(
+            assignment, submission, request.user, answered_count, len(assigned_qs),
+        )
+
         # Dispatch rendering by subject plugin
         if current_wq.subject_slug == 'coding':
             plugin = get_plugin('coding')
@@ -933,6 +968,7 @@ class WorksheetSessionView(LoginRequiredMixin, View):
                 'answered_count': answered_count,
                 'is_coding': True,
                 'coding_ctx': ctx,
+                'progress_art': art_ctx,
             })
 
         # Maths question
@@ -950,6 +986,7 @@ class WorksheetSessionView(LoginRequiredMixin, View):
             'question_number': question_number,
             'total_questions': len(assigned_qs),
             'answered_count': answered_count,
+            'progress_art': art_ctx,
         })
 
 
@@ -961,25 +998,12 @@ def _grade_long_division(question, text_answer: str) -> bool:
     """
     Grade a long-division answer submitted as "quotient r remainder" or just "quotient".
     Accepts "6 r 0" and "6" as equivalent when expected remainder is 0.
+
+    Thin wrapper over the shared grader so the worksheet, the quiz and homework
+    mark this type identically.
     """
-    if not (question.dividend and question.divisor):
-        return False
-    try:
-        expected_quotient = question.dividend // question.divisor
-        expected_remainder = question.dividend % question.divisor
-
-        text = text_answer.strip().lower().replace(' r ', ' r')
-        if ' r' in text:
-            parts = text.split(' r', 1)
-            submitted_quotient = int(parts[0].strip())
-            submitted_remainder = int(parts[1].strip()) if parts[1].strip() else 0
-        else:
-            submitted_quotient = int(text.strip())
-            submitted_remainder = 0
-
-        return submitted_quotient == expected_quotient and submitted_remainder == expected_remainder
-    except (ValueError, TypeError, IndexError):
-        return False
+    from maths.column_grading import grade_long_division
+    return grade_long_division(question, text_answer)
 
 
 def _grade_column_operation(question, text_answer: str) -> bool:
@@ -987,11 +1011,12 @@ def _grade_column_operation(question, text_answer: str) -> bool:
     Grade a column-arithmetic answer (the joined result digits) against the
     computed column_result. Tolerant of surrounding spaces and leading zeros,
     so it grades without needing a stored answer row.
+
+    Thin wrapper over the shared grader so the worksheet, the quiz and homework
+    mark this type identically.
     """
-    if question.column_result is None:
-        return False
-    m = re.match(r'^\s*(-?\d+)\s*$', (text_answer or '').replace(' ', ''))
-    return bool(m) and int(m.group(1)) == question.column_result
+    from maths.column_grading import grade_column_operation
+    return grade_column_operation(question, text_answer)
 
 
 def _prime_factors(n: int):

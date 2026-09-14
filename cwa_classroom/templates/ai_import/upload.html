@@ -41,6 +41,13 @@
       {% include "_partials/page_selection_field.html" %}
 
       <div class="flex gap-3">
+        {% if page_quota.no_allowance %}
+        <a href="{% url 'ai_pages_required' %}?from=ai_import" data-testid="pdf-needs-module"
+           title="Reading a PDF with AI needs an AI module — find out what that means"
+           class="inline-block px-6 py-2.5 rounded-xl bg-amber-500 text-white font-semibold shadow-sm hover:bg-amber-600 transition">
+          Upload &amp; Classify with AI
+        </a>
+        {% else %}
         <button type="submit" id="ai-upload-btn"
                 {% if usage_percent >= 100 %}disabled{% endif %}
                 class="px-6 py-2.5 rounded-xl bg-primary text-white font-semibold shadow-sm hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed">
@@ -49,6 +56,7 @@
           </svg>
           Upload &amp; Classify with AI
         </button>
+        {% endif %}
       </div>
     </form>
 

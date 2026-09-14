@@ -3,6 +3,8 @@
 Covers:
   - recent_activity is a single merged list sorted by completed_at descending
     (not grouped by quiz type)
+  - recent_activity includes homework and worksheet submissions, not just
+    self-directed quizzes
   - time_daily/time_weekly on all three student pages sums quiz-record time:
       StudentFinalAnswer, BasicFactsResult, PuzzleSession, HomeworkSubmission
   - /student-dashboard/, /hub/, and /maths/ all show the same time
@@ -20,6 +22,9 @@ from classroom.models import ClassRoom
 from homework.models import Homework, HomeworkSubmission
 from maths.models import BasicFactsResult, StudentFinalAnswer, TimeLog
 from number_puzzles.models import NumberPuzzleLevel, PuzzleSession
+from worksheets.models import (
+    Worksheet, WorksheetAssignment, WorksheetSubmission,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -82,23 +87,56 @@ def _puzzle_session(student, *, duration_seconds=90, offset_seconds=0):
     return session
 
 
-def _homework_submission(student, *, seconds=120):
-    """Create a HomeworkSubmission for today."""
+def _homework_submission(student, *, seconds=120, title='Test Homework',
+                         offset_seconds=0, points=8.0):
+    """Create a HomeworkSubmission `offset_seconds` ago."""
     classroom = ClassRoom.objects.create(name='Test Class HW')
     homework = Homework.objects.create(
         classroom=classroom,
-        title='Test Homework',
+        title=title,
         due_date=timezone.now() + timedelta(days=7),
         num_questions=5,
     )
-    return HomeworkSubmission.objects.create(
+    sub = HomeworkSubmission.objects.create(
         homework=homework,
         student=student,
         score=4,
         total_questions=5,
+        points=points,
         time_taken_seconds=seconds,
         attempt_number=1,
     )
+    if offset_seconds:
+        ts = timezone.now() - timedelta(seconds=offset_seconds)
+        HomeworkSubmission.objects.filter(pk=sub.pk).update(submitted_at=ts)
+        sub.refresh_from_db()
+    return sub
+
+
+def _worksheet_submission(student, *, name='Test Worksheet', offset_seconds=0,
+                          complete=True):
+    """Create a WorksheetSubmission, completed `offset_seconds` ago by default."""
+    from classroom.models import School
+
+    school = School.objects.create(
+        name='Worksheet School', slug=f'ws-school-{name.lower().replace(" ", "-")}',
+    )
+    classroom = ClassRoom.objects.create(name=f'Test Class WS {name}', school=school)
+    worksheet = Worksheet.objects.create(
+        school=school, name=name, original_filename=f'{name}.pdf', question_count=6,
+    )
+    assignment = WorksheetAssignment.objects.create(
+        worksheet=worksheet, classroom=classroom,
+    )
+    sub = WorksheetSubmission.objects.create(
+        assignment=assignment, student=student, score=5, total_questions=6,
+    )
+    if complete:
+        WorksheetSubmission.objects.filter(pk=sub.pk).update(
+            completed_at=timezone.now() - timedelta(seconds=offset_seconds),
+        )
+        sub.refresh_from_db()
+    return sub
 
 
 def _heartbeat(client, seconds=30):
@@ -168,6 +206,97 @@ class RecentActivityOrderTest(TestCase):
     def tearDown(self):
         BasicFactsResult.objects.filter(student=self.student).delete()
         PuzzleSession.objects.filter(student=self.student).delete()
+
+
+# ---------------------------------------------------------------------------
+# Recent Activity — homework and worksheets
+# ---------------------------------------------------------------------------
+
+class RecentActivityHomeworkWorksheetTest(TestCase):
+    """Homework and worksheet submissions belong in Recent Activity.
+
+    Regression: the feed only read the self-directed quiz tables, so a student
+    whose class runs on homework and worksheets saw none of their own work —
+    even though that work already counted towards their time on task.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.student = _make_student('hwact_student')
+
+    def setUp(self):
+        self.client.login(username='hwact_student', password='password1!')
+
+    def _activity(self):
+        resp = self.client.get(reverse('student_dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        return resp.context['recent_activity']
+
+    def test_homework_appears(self):
+        _homework_submission(self.student, title='Fractions Week 3')
+
+        names = [item['name'] for item in self._activity()]
+        self.assertIn('📚 Homework — Fractions Week 3', names)
+
+    def test_homework_shows_score_and_percentage(self):
+        _homework_submission(self.student, title='Scored HW', points=8.0)
+
+        item = next(i for i in self._activity() if 'Scored HW' in i['name'])
+        self.assertEqual(item['score_label'], '4/5 — 8.0pts')
+        self.assertEqual(item['pct'], 80)
+
+    def test_worksheet_appears(self):
+        _worksheet_submission(self.student, name='Shapes Worksheet')
+
+        names = [item['name'] for item in self._activity()]
+        self.assertIn('📝 Worksheet — Shapes Worksheet', names)
+
+    def test_worksheet_shows_score_and_percentage(self):
+        _worksheet_submission(self.student, name='Scored WS')
+
+        item = next(i for i in self._activity() if 'Scored WS' in i['name'])
+        self.assertEqual(item['score_label'], '5/6')
+        self.assertEqual(item['pct'], 83)
+
+    def test_unfinished_worksheet_is_excluded(self):
+        """A worksheet still being worked through is not activity yet."""
+        _worksheet_submission(self.student, name='Half Done', complete=False)
+
+        names = [item['name'] for item in self._activity()]
+        self.assertNotIn('📝 Worksheet — Half Done', names)
+
+    def test_interleaved_with_quizzes_by_time(self):
+        """Homework/worksheets sort into the feed by time, not appended last."""
+        _bf(self.student, offset_seconds=100, tag='mid-hw')
+        _homework_submission(self.student, title='Newest HW', offset_seconds=10)
+        _worksheet_submission(self.student, name='Oldest WS', offset_seconds=500)
+
+        activity = self._activity()
+        times = [item['completed_at'] for item in activity]
+        self.assertEqual(times, sorted(times, reverse=True))
+
+        names = [item['name'] for item in activity]
+        self.assertEqual(names[0], '📚 Homework — Newest HW')
+        self.assertEqual(names[-1], '📝 Worksheet — Oldest WS')
+
+    def test_homework_only_student_still_sees_activity(self):
+        """The reported bug: no quizzes, only homework — feed must not be empty."""
+        _homework_submission(self.student, title='Only Homework')
+
+        self.assertEqual(len(self._activity()), 1)
+
+    def test_items_have_required_keys(self):
+        _homework_submission(self.student, title='Keys HW')
+        _worksheet_submission(self.student, name='Keys WS')
+
+        for item in self._activity():
+            for key in ('completed_at', 'name', 'score_label', 'pct'):
+                self.assertIn(key, item)
+
+    def tearDown(self):
+        BasicFactsResult.objects.filter(student=self.student).delete()
+        HomeworkSubmission.objects.filter(student=self.student).delete()
+        WorksheetSubmission.objects.filter(student=self.student).delete()
 
 
 # ---------------------------------------------------------------------------

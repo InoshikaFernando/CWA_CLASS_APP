@@ -101,125 +101,23 @@ cat > /etc/logrotate.d/cwa <<'LOGROTATE'
 }
 LOGROTATE
 
-# ── Ops metrics cron ─────────────────────────────────────────────────────────
-# Powers the in-app Ops dashboard (/admin-dashboard/ops/). Without this the
-# dashboard silently shows empty charts, so install it here rather than relying
-# on a manual `crontab -e`. A /etc/cron.d drop-in is idempotent (re-running
-# setup overwrites it) and leaves the cwa user's personal crontab untouched.
-echo "==> Installing ops-metrics cron..."
-cat > /etc/cron.d/cwa-ops <<'OPSCRON'
-# CWA ops metrics — record droplet health every 10 min; prune old rows daily.
-# Managed by deploy/setup-app-prod.sh; edit there, not here.
-*/10 * * * * cwa /home/cwa/CWA_CLASS_APP/scripts/record_ops_metrics.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/ops_metrics.log 2>&1
-30 3 * * * cwa /home/cwa/CWA_CLASS_APP/scripts/record_ops_metrics.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env prune >> /var/log/cwa/ops_metrics.log 2>&1
-OPSCRON
-chmod 644 /etc/cron.d/cwa-ops
-
-# ── Stuck-upload reaper cron ─────────────────────────────────────────────────
-# A work-horse killed by the OOM killer never runs its failure handler, leaving
-# the PDF upload session in 'processing' — the teacher's page then polls a job
-# that will never finish. The reaper flips those to failed so the page self-heals
-# into a retry. Install it here; without the cron the command never runs.
-echo "==> Installing stuck-upload reaper cron..."
-cat > /etc/cron.d/cwa-uploads <<'REAPCRON'
-# CWA stuck-upload reaper — self-heal PDF uploads whose worker died.
-# Managed by deploy/setup-app-prod.sh; edit there, not here.
-*/5 * * * * cwa /home/cwa/CWA_CLASS_APP/scripts/reap_stuck_uploads.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env 30 >> /var/log/cwa/reap_uploads.log 2>&1
-REAPCRON
-chmod 644 /etc/cron.d/cwa-uploads
-
-# ── Email queue cron ─────────────────────────────────────────────────────────
-# Every invoice email is force-queued at issue time, so this command IS the
-# delivery path — without it invoices are marked issued and silently never sent.
-# Production once accrued 316 undelivered invoice emails over ten weeks because
-# the only crontab entry for it pointed at the CWA_CLASS_APP_TEST checkout, so
-# the production queue had no drainer. Installing it here (rather than by hand)
-# is what stops that recurring; the explicit app dir stops the path drifting to
-# another checkout.
-echo "==> Installing email-queue cron..."
-cat > /etc/cron.d/cwa-email <<'MAILCRON'
-# CWA email queue — deliver queued mail (all invoice email) every 2 min.
-# Managed by deploy/setup-app-prod.sh; edit there, not here.
-*/2 * * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_process_email_queue.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/email_queue.log 2>&1
-MAILCRON
-chmod 644 /etc/cron.d/cwa-email
-
-# ── Email queue watchdog cron ────────────────────────────────────────────────
-# A drain that stops is invisible: invoices still read as issued while their
-# emails sit queued. This posts to Discord once the backlog ages past the
-# threshold. Kept as its own cron because a watchdog running inside the job it
-# watches cannot report that job being dead.
-echo "==> Installing email-queue watchdog cron..."
-cat > /etc/cron.d/cwa-email-health <<'MAILHEALTHCRON'
-# CWA email queue watchdog — alert if queued mail stops being delivered.
-# Managed by deploy/setup-app-prod.sh; edit there, not here.
-0 * * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_check_email_queue.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/email_queue_health.log 2>&1
-MAILHEALTHCRON
-chmod 644 /etc/cron.d/cwa-email-health
-
-# ── Unpaid-access watchdog cron ──────────────────────────────────────────────
-# TrialExpiryMiddleware is the only thing between a delinquent account (card
-# failed / cancelled / expired) and the whole app. A regression in that gate
-# does not error — the account simply keeps working and nobody is billed, which
-# is invisible until someone reconciles revenue by hand. This daily check
-# cross-checks every delinquent subscription against the page-hit log and posts
-# any leak to Discord; the same signal is on the Ops dashboard
-# (/admin-dashboard/ops/). PROD is where live PageHits accrue, so this is the
-# droplet that can see it.
-echo "==> Installing unpaid-access watchdog cron..."
-cat > /etc/cron.d/cwa-unpaid-access <<'UNPAIDCRON'
-# CWA unpaid-access watchdog — alert if a delinquent account reached a
-# restricted page. Managed by deploy/setup-app-prod.sh; edit there, not here.
-0 9 * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_check_unpaid_access.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env 1 >> /var/log/cwa/unpaid_access.log 2>&1
-UNPAIDCRON
-chmod 644 /etc/cron.d/cwa-unpaid-access
-
-# ── Progress report cron ─────────────────────────────────────────────────────
-# Nothing else calls the report generator, and its absence is invisible: the
-# reports page just stays empty, which reads as "no activity yet" rather than as
-# a dead job. Installed here for the same reason as the email cron — a crontab
-# entry added by hand is one that points at the wrong checkout.
-echo "==> Installing progress-report cron..."
-cat > /etc/cron.d/cwa-progress-reports <<'REPORTCRON'
-# CWA progress reports — close the week / month / term and notify families.
-# Managed by deploy/setup-app-prod.sh; edit there, not here.
-10 6 * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_generate_progress_reports.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/progress_reports.log 2>&1
-REPORTCRON
-chmod 644 /etc/cron.d/cwa-progress-reports
-
-# ── Scheduled homework publish cron ──────────────────────────────────────────
-# The ONLY thing that sets published_at on a scheduled homework. Students gate
-# on published_at (homework/api_views.py), so without this command a set a
-# teacher scheduled — by hand, or by the question-schedule cron below — is
-# created, sits invisible, and is never sent. Nothing errors; the class simply
-# never receives it.
+# ── Cron drop-ins ────────────────────────────────────────────────────────────
+# Delegated to scripts/install_crons.sh, which writes every /etc/cron.d/cwa-*
+# drop-in and touches nothing else.
 #
-# It was documented in MANAGEMENT_COMMANDS.md as a crontab line to add by hand
-# and never installed on production at all. Worse, that documented line ran
-# `manage.py` from the repo root, where manage.py has never lived, so anyone who
-# did follow the docs got a job that died instantly every five minutes into a
-# log nobody reads. Installing it here is what stops both.
-echo "==> Installing scheduled-homework publish cron..."
-cat > /etc/cron.d/cwa-publish-homework <<'PUBCRON'
-# CWA scheduled homework — publish sets whose publish_at has arrived.
-# Managed by deploy/setup-app-prod.sh; edit there, not here.
-*/5 * * * * cwa cd /home/cwa/CWA_CLASS_APP && venv/bin/python cwa_classroom/manage.py publish_scheduled_homework >> /var/log/cwa/publish_scheduled_homework.log 2>&1
-PUBCRON
-chmod 644 /etc/cron.d/cwa-publish-homework
-
-# ── Question schedule cron ───────────────────────────────────────────────────
-# Builds the homework a teacher's weekly teaching plan is due to produce
-# (CPP-399). Its absence is invisible in exactly the way the progress-report
-# job's is: the plan's weeks stay 'pending', the class gets no homework, and
-# nothing anywhere says why. Runs before the school day so the sets are ready
-# for a teacher to review in the morning.
-echo "==> Installing question-schedule cron..."
-cat > /etc/cron.d/cwa-scheduled-questions <<'SCHEDQCRON'
-# CWA question schedules — turn each planned teaching week into homework.
-# Managed by deploy/setup-app-prod.sh; edit there, not here.
-15 2 * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_generate_scheduled_questions.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/scheduled_questions.log 2>&1
-SCHEDQCRON
-chmod 644 /etc/cron.d/cwa-scheduled-questions
+# They used to be inlined here, and that is exactly why production ran for two
+# weeks with no publish_scheduled_homework cron: the only way to install one
+# was to run THIS script, which also upgrades the OS, overwrites the Caddyfile
+# and the gunicorn unit and rebuilds the venv — far too much to do to a live
+# site for the sake of a crontab line, so nobody did. Every scheduled homework
+# the question automation built in that window was created, held, and never
+# sent, with nothing erroring anywhere.
+#
+# Keeping them in their own script means a missing cron is a ten-second fix on
+# a live droplet (`sudo scripts/install_crons.sh`) instead of an OS upgrade,
+# and `--check` reports drift without writing anything.
+echo "==> Installing cron drop-ins..."
+bash "${REPO_DIR}/scripts/install_crons.sh" prod
 
 # ── Sudoers for deploy ───────────────────────────────────────────────────────
 echo "==> Granting cwa user restart permissions..."

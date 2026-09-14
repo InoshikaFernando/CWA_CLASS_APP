@@ -15,14 +15,18 @@ from maths.algebra_grading import (
     _is_simple_expression,
     _parse_term,
     _split_terms,
+    fold_answer,
     fold_degrees,
     fold_division,
     fold_exponents,
     fold_inequalities,
+    fold_plus_minus,
     is_algebraic_answer_correct,
     is_equation_answer_correct,
     is_reordered_expression_correct,
+    match_value,
     normalize_notation,
+    plus_minus_magnitude,
 )
 
 EXPECTED = "2x^2 - 7x - 15"  # the canonical answer to (2x + 3)(x - 5)
@@ -430,3 +434,88 @@ class TestQuotientTerms:
         # Strictness is unchanged: two x terms written as quotients is still
         # an un-simplified answer.
         assert is_algebraic_answer_correct("x/2 + x/2", "x") is False
+
+
+# --------------------------------------------------------------------------- #
+# fold_plus_minus / plus_minus_magnitude — "Solve x² = 23" has two roots, and
+# the answer key writes them ±4.80. A student with no ± key spells it
+# "+/-4.80" or "4.80 or -4.80"; all three name the same pair.
+# --------------------------------------------------------------------------- #
+class TestFoldPlusMinus:
+    @pytest.mark.parametrize("spelling", ["+/-4.80", "-/+4.80", "+-4.80", "-+4.80"])
+    def test_every_ascii_spelling_folds_to_the_symbol(self, spelling):
+        assert fold_plus_minus(spelling) == "±4.80"
+
+    def test_the_symbol_itself_is_unchanged(self):
+        assert fold_plus_minus("±4.80") == "±4.80"
+
+    def test_plain_values_unaffected(self):
+        assert fold_plus_minus("8") == "8"
+        assert fold_plus_minus("2x + 3") == "2x + 3"
+        assert fold_plus_minus("n/4") == "n/4"
+
+    def test_a_sum_of_signed_terms_is_not_a_plus_minus(self):
+        # The space is what tells the two apart, which is why this fold runs
+        # before whitespace is stripped.
+        assert fold_plus_minus("5 + -3") == "5 + -3"
+
+    def test_fold_answer_matches_the_two_spellings(self):
+        assert fold_answer("+/-4.80") == fold_answer("±4.80")
+
+    @pytest.mark.parametrize("pair", [
+        ("n ÷ 4", "n/4"),          # fold_division
+        ("50°", "50"),             # fold_degrees
+        ("x ≥ 2", "x>=2"),         # fold_inequalities
+        ("2cm²", "2 cm^2"),        # fold_exponents
+        ("1,000", "1000"),         # digit grouping
+    ])
+    def test_the_other_folds_still_compose(self, pair):
+        assert fold_answer(pair[0]) == fold_answer(pair[1])
+
+    def test_a_negative_answer_is_still_not_a_positive_one(self):
+        assert fold_answer("-5") != fold_answer("5")
+
+
+class TestPlusMinusMagnitude:
+    @pytest.mark.parametrize("answer", [
+        "±4.80", "x=±4.80", "x = ±4.80", "x = ± 4.80", " ±4.80 ",
+        "+/-4.80", "+-4.80", "x=+/-4.80", "x = +/- 4.80",
+        "4.80 or -4.80", "-4.80 or 4.80", "x=4.80 or x=-4.80",
+        "x = 4.80 or x = -4.80", "4.80 OR -4.80", "+4.80 or -4.80",
+    ])
+    def test_every_spelling_of_the_same_roots_reduces_to_one_magnitude(self, answer):
+        assert plus_minus_magnitude(answer) == "4.80"
+
+    def test_a_typographic_minus_is_folded_first(self):
+        # An imported answer key writes the roots with a real MINUS SIGN.
+        assert plus_minus_magnitude("\u22124.80 or 4.80") == "4.80"
+
+    @pytest.mark.parametrize("answer", [
+        "4.80",            # ONE root of two — incomplete, not a spelling
+        "x=4.80",
+        "-4.80",
+        "4 or 5",          # an ordinary either/or answer
+        "4.80 or 4.80",    # same sign twice
+        "4.8 or -4.80",    # magnitudes differ as written
+        "3, 5, 7",         # an ordered list
+        "2x + 3",
+        "5 + -3",
+        "n ÷ 4",
+        "x>=2",
+        "left",
+        "",
+        None,
+    ])
+    def test_anything_else_is_not_a_plus_minus_answer(self, answer):
+        assert plus_minus_magnitude(answer) is None
+
+    def test_two_different_magnitudes_never_match(self):
+        assert plus_minus_magnitude("±4.80") != plus_minus_magnitude("±4.79")
+
+    def test_match_value_accepts_the_spellings_in_a_blank(self):
+        # One gap of a fill-in-the-blank sentence is judged by the same rules.
+        assert match_value("+/-4.80", "±4.80") is True
+        assert match_value("4.80 or -4.80", "x=±4.80") is True
+        assert match_value("±4.80", "±4.80", "algebra") is True
+        # And an incomplete gap is still wrong.
+        assert match_value("4.80", "±4.80") is False

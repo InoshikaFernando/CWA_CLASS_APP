@@ -19,6 +19,11 @@
     </div>
     <!-- Window selector (applies to all charts) -->
     <div class="flex items-center gap-2">
+      <a href="{% url 'ops_error_log' %}"
+         data-testid="ops-log-link"
+         class="px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 transition mr-2">
+        Application log
+      </a>
       <span class="text-sm text-slate-400">Window:</span>
       {% for opt in window_options %}
         <a href="?window={{ opt.key }}"
@@ -48,6 +53,20 @@
     Queued mail includes every invoice email, so invoices may be marked issued but never sent.
     Check the <code>process_email_queue</code> cron (<code>/etc/cron.d/cwa-email</code>) and
     <code>/var/log/cwa/email_queue.log</code>.
+  </div>
+  {% endif %}
+
+  {% if scheduled_publish.status != 'ok' %}
+  <div class="mb-6 px-4 py-3 rounded-xl text-sm {% if scheduled_publish.status == 'critical' %}bg-red-500/10 border border-red-500/30 text-red-300{% else %}bg-amber-500/10 border border-amber-500/30 text-amber-300{% endif %}"
+       data-testid="scheduled-publish-banner">
+    {% if scheduled_publish.status == 'critical' %}🔴 Scheduled homework is not being published{% else %}🟡 Scheduled homework publishing is behind{% endif %} —
+    {% for reason in scheduled_publish.reasons %}{{ reason }}{% if not forloop.last %}; {% endif %}{% endfor %}.
+    Students gate on <code>published_at</code>, which only
+    <code>publish_scheduled_homework</code> sets, so these classes have been sent
+    nothing and nothing has errored. Check the cron
+    (<code>/etc/cron.d/cwa-publish-homework</code>) and
+    <code>/var/log/cwa/publish_scheduled_homework.log</code>; if the drop-in is
+    missing, re-run <code>deploy/setup-app-prod.sh</code> as root.
   </div>
   {% endif %}
 
@@ -98,6 +117,64 @@
       Waiting by type:
       {% for kind, count in email_queue.pending_by_type.items %}<span class="text-slate-400">{{ kind }}</span> {{ count }}{% if not forloop.last %} · {% endif %}{% endfor %}
     </p>
+    {% endif %}
+  </div>
+
+  <!-- Scheduled publishing (the question automation's delivery path) -->
+  <div class="mb-6">
+    <h2 class="text-sm font-semibold text-slate-400 mb-3">Scheduled homework</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if scheduled_publish.status == 'critical' %}border-red-500/40{% elif scheduled_publish.status == 'warning' %}border-amber-500/40{% else %}border-emerald-500/40{% endif %}"
+           data-testid="scheduled-publish-tile">
+        <p class="text-sm text-slate-400">Publishing</p>
+        <p class="text-2xl font-bold mt-1 {% if scheduled_publish.status == 'critical' %}text-red-400{% elif scheduled_publish.status == 'warning' %}text-amber-400{% else %}text-emerald-400{% endif %}">
+          {% if scheduled_publish.status == 'critical' %}Stalled{% elif scheduled_publish.status == 'warning' %}Behind{% else %}Healthy{% endif %}
+        </p>
+        <p class="text-xs text-slate-500 mt-1">
+          {% if scheduled_publish.last_published_at %}last released {{ scheduled_publish.last_published_at|timesince }} ago{% else %}nothing released yet{% endif %}
+        </p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if scheduled_publish.overdue %}border-red-500/40{% else %}border-slate-700{% endif %}">
+        <p class="text-sm text-slate-400">Past release, unsent</p>
+        <p class="text-2xl font-bold mt-1 {% if scheduled_publish.overdue %}text-red-400{% else %}text-slate-100{% endif %}">{{ scheduled_publish.overdue }}</p>
+        <p class="text-xs text-slate-500 mt-1">
+          {% if scheduled_publish.oldest_overdue_at %}oldest due {{ scheduled_publish.oldest_overdue_at|timesince }} ago{% else %}every release has gone out{% endif %}
+        </p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+        <p class="text-sm text-slate-400">Built by a schedule</p>
+        <p class="text-2xl font-bold mt-1 text-slate-100">{{ scheduled_publish.from_schedule }}</p>
+        <p class="text-xs text-slate-500 mt-1">of the unsent sets above</p>
+      </div>
+      <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+        <p class="text-sm text-slate-400">Awaiting release</p>
+        <p class="text-2xl font-bold mt-1 text-slate-100">{{ scheduled_publish.upcoming }}</p>
+        <p class="text-xs text-slate-500 mt-1">in the teacher preview window</p>
+      </div>
+    </div>
+    {% if scheduled_publish.rows %}
+    <div class="mt-3 overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead class="text-slate-500">
+          <tr class="text-left">
+            <th class="py-1 pr-4 font-medium">Homework</th>
+            <th class="py-1 pr-4 font-medium">Class</th>
+            <th class="py-1 pr-4 font-medium">Should have released</th>
+            <th class="py-1 font-medium">Late by</th>
+          </tr>
+        </thead>
+        <tbody class="text-slate-400">
+          {% for row in scheduled_publish.rows %}
+          <tr class="border-t border-slate-800">
+            <td class="py-1 pr-4">{{ row.title }}{% if row.from_schedule %} <span class="text-slate-500">(schedule)</span>{% endif %}</td>
+            <td class="py-1 pr-4">{{ row.classroom }}</td>
+            <td class="py-1 pr-4">{{ row.publish_at|date:"d M Y H:i" }}</td>
+            <td class="py-1">{{ row.publish_at|timesince }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     {% endif %}
   </div>
 
@@ -153,6 +230,84 @@
         </p>
       </div>
     </div>
+
+    {% comment %}
+      Two views of "a student could not pay at all". The left tile is the
+      record — real people who hit a failed checkout. The right one is the
+      cause, checked ahead of them: a Stripe price we hold that is archived or
+      gone. An archived price on the default package broke every school
+      student's payment page and was invisible in the app for two weeks.
+    {% endcomment %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if checkout_failures.status == 'critical' %}border-red-500/40{% elif checkout_failures.status == 'warning' %}border-amber-500/40{% else %}border-slate-700{% endif %}"
+           data-testid="checkout-failures-tile">
+        <p class="text-sm text-slate-400">Failed checkouts ({{ checkout_failures.days }}d)</p>
+        <p class="text-2xl font-bold mt-1 {% if checkout_failures.status == 'critical' %}text-red-400{% elif checkout_failures.status == 'warning' %}text-amber-400{% else %}text-slate-100{% endif %}">{{ checkout_failures.count }}</p>
+        <p class="text-xs text-slate-500 mt-1">
+          {% if checkout_failures.count %}
+            {{ checkout_failures.users }} student{{ checkout_failures.users|pluralize }} could not pay
+          {% else %}
+            everyone reached the card page
+          {% endif %}
+        </p>
+      </div>
+
+      <div class="bg-slate-800 rounded-2xl p-6 border {% if stripe_prices.status == 'critical' %}border-red-500/40{% elif stripe_prices.status == 'unknown' %}border-slate-600{% else %}border-slate-700{% endif %}"
+           data-testid="stripe-prices-tile">
+        <p class="text-sm text-slate-400">Stripe prices</p>
+        <p class="text-2xl font-bold mt-1 {% if stripe_prices.status == 'critical' %}text-red-400{% else %}text-slate-100{% endif %}">
+          {% if stripe_prices.status == 'unknown' %}&mdash;{% else %}{{ stripe_prices.broken|length }}{% endif %}
+        </p>
+        <p class="text-xs text-slate-500 mt-1">
+          {% if stripe_prices.skipped %}{{ stripe_prices.skipped }}
+          {% elif stripe_prices.broken %}unusable &mdash; {{ stripe_prices.checked }} checked OK
+          {% else %}all {{ stripe_prices.checked }} price{{ stripe_prices.checked|pluralize }} active{% endif %}
+        </p>
+      </div>
+    </div>
+
+    {% if stripe_prices.broken %}
+    <div class="mt-4 px-4 py-3 rounded-xl text-sm bg-red-500/10 border border-red-500/30 text-red-300"
+         data-testid="stripe-prices-broken">
+      {% for b in stripe_prices.broken %}
+        <div class="mb-2">
+          <strong>{{ b.kind }} &ldquo;{{ b.label }}&rdquo;</strong>
+          {% if b.price_id %}<code class="text-red-200">{{ b.price_id }}</code>{% endif %}
+          &mdash; {{ b.problem }}
+          {% if b.fix %}<div class="text-slate-400 mt-0.5">&rarr; {{ b.fix }}</div>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if checkout_failures.rows %}
+    <div class="mt-4 bg-slate-800 rounded-2xl border border-slate-700 overflow-x-auto"
+         data-testid="checkout-failures-table">
+      <table class="w-full text-sm">
+        <thead class="text-slate-400 border-b border-slate-700">
+          <tr>
+            <th class="text-left font-medium px-4 py-2">When</th>
+            <th class="text-left font-medium px-4 py-2">Student</th>
+            <th class="text-left font-medium px-4 py-2">Plan</th>
+            <th class="text-left font-medium px-4 py-2">What Stripe said</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in checkout_failures.rows %}
+          <tr class="border-b border-slate-700/50 last:border-0">
+            <td class="px-4 py-2 text-slate-400 whitespace-nowrap">{{ row.when|date:"D d M, H:i" }}</td>
+            <td class="px-4 py-2 text-slate-200">{{ row.name }} <span class="text-slate-500">({{ row.username }})</span></td>
+            <td class="px-4 py-2 text-slate-400">{{ row.package }}</td>
+            <td class="px-4 py-2 text-red-300">{{ row.error }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if checkout_failures.truncated %}
+      <p class="text-xs text-slate-500 px-4 py-2">Showing the most recent {{ checkout_failures.rows|length }} of {{ checkout_failures.count }}.</p>
+      {% endif %}
+    </div>
+    {% endif %}
 
     {% if payment_delays.reasons %}
     <div class="mt-4 px-4 py-3 rounded-xl text-sm {% if payment_delays.status == 'critical' %}bg-red-500/10 border border-red-500/30 text-red-300{% else %}bg-amber-500/10 border border-amber-500/30 text-amber-300{% endif %}">

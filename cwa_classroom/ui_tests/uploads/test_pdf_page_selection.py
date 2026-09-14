@@ -128,7 +128,7 @@ class TestPageSelectionField:
 
     @pytest.mark.django_db(transaction=True)
     def test_a_range_past_the_end_is_refused_on_the_upload_screen(
-        self, page: Page, live_server, school, teacher_user
+        self, page: Page, live_server, school_with_ai_pages, teacher_user
     ):
         """The teacher sees the mistake immediately, not as a failed job later."""
         from worksheets.models import WorksheetUploadSession

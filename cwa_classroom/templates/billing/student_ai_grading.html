@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load billing_tags %}
 {% block title %}AI Graded Questions{% endblock %}
 
 {% block content %}
@@ -40,7 +41,7 @@
           and the same one everyone else is on.
         </p>
         <p class="text-2xl font-display font-bold text-primary mt-2">
-          ${{ price }}<span class="text-sm font-normal text-gray-400"> / month</span>
+          {{ price|money }}<span class="text-sm font-normal text-gray-400"> / month</span>
         </p>
       </div>
     {% endif %}

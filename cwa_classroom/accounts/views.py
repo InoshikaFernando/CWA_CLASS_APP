@@ -16,7 +16,9 @@ from django.views.generic import TemplateView
 from django.utils.decorators import method_decorator
 from django.utils.text import slugify
 
-from .models import CustomUser, Role, UserRole, PendingRegistration
+from .models import (
+    CustomUser, PendingInstituteRegistration, PendingRegistration, Role, UserRole,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -327,122 +329,93 @@ class TeacherCenterRegisterView(View):
                 'postal_code': postal_code, 'country': country,
             })
 
+        address = {
+            'abn': abn, 'phone': phone, 'street_address': street_address,
+            'city': city, 'state_region': state_region,
+            'postal_code': postal_code, 'country': country,
+            'discount_code': discount_obj.code if discount_obj else None,
+        }
+        is_free = discount_obj and getattr(discount_obj, 'is_fully_free', False)
+
         try:
-            from datetime import timedelta
-            from django.utils import timezone
-            from classroom.models import School
+            from billing.models import SchoolSubscription
+            from accounts.institute_registration import create_institute_account
 
-            with transaction.atomic():
-                # 1. Create user
-                user = CustomUser.objects.create_user(
+            # ── Nothing to charge: build the account now, no card needed ──────
+            if is_free or not (plan and plan.stripe_price_id):
+                user, school, _sub = create_institute_account(
                     username=username, email=email, password=password,
+                    center_name=center_name, plan=plan,
+                    discount_obj=discount_obj, address=address,
+                    status=SchoolSubscription.STATUS_ACTIVE,
+                    trial_end=None,
                 )
-                user.terms_accepted_at = timezone.now()
-                user.save(update_fields=['terms_accepted_at'])
+                login(request, user)
 
-                # 2. Assign Head of Institute role
-                role, _ = Role.objects.get_or_create(
-                    name=Role.HEAD_OF_INSTITUTE,
-                    defaults={'display_name': 'Head of Institute'},
+                from audit.services import log_event
+                log_event(
+                    user=user, school=school, category='auth',
+                    action='hoi_registered',
+                    detail={
+                        'center_name': center_name,
+                        'plan': plan.name if plan else None,
+                        'discount_code': discount_code_str or None,
+                        'via': 'free',
+                    },
+                    request=request,
                 )
-                UserRole.objects.create(user=user, role=role)
-
-                # 3. Create school with this user as admin
-                slug = slugify(center_name)
-                base_slug = slug or 'school'
-                counter = 1
-                while School.objects.filter(slug=slug).exists():
-                    slug = f'{base_slug}-{counter}'
-                    counter += 1
-                school = School.objects.create(
-                    name=center_name,
-                    slug=slug,
-                    admin=user,
-                    abn=abn,
-                    phone=phone,
-                    street_address=street_address,
-                    city=city,
-                    state_region=state_region,
-                    postal_code=postal_code,
-                    country=country,
-                )
-
-                # 4. Create school subscription
-                # If 100% discount code → active immediately, otherwise trial
-                is_free = discount_obj and discount_obj.is_fully_free
-                if is_free:
-                    status = SchoolSubscription.STATUS_ACTIVE
-                    trial_end = None
-                    has_used_trial = False
-                else:
-                    status = SchoolSubscription.STATUS_TRIALING
-                    trial_days = plan.trial_days if plan else 14
-                    trial_end = timezone.now() + timedelta(days=trial_days)
-                    has_used_trial = True
-
-                sub = SchoolSubscription.objects.create(
-                    school=school,
-                    plan=plan,
-                    discount_code=discount_obj,
-                    status=status,
-                    trial_end=trial_end,
-                    has_used_trial=has_used_trial,
-                    invoice_year_start=timezone.now().date(),
-                )
-
-                # Increment discount code usage
-                if discount_obj:
-                    discount_obj.uses += 1
-                    discount_obj.save(update_fields=['uses'])
-
-            login(request, user)
-
-            from audit.services import log_event
-            log_event(
-                user=user, school=school, category='auth',
-                action='hoi_registered',
-                detail={
-                    'center_name': center_name, 'plan': plan.name if plan else None,
-                    'discount_code': discount_code_str or None,
-                },
-                request=request,
-            )
-
-            # Send self-registered welcome email (HoI chose their own password)
-            try:
-                from notifications.services import send_welcome_notification
-                send_welcome_notification(user, school=school)
-            except Exception:
-                logger.exception('Failed to send welcome email for HoI user %s', user.pk)
-
-            # If plan has a Stripe price and not fully free → redirect to Stripe Checkout
-            if plan and plan.stripe_price_id and not is_free:
                 try:
-                    from billing.stripe_service import create_institute_checkout_session
-                    stripe_coupon = discount_obj.stripe_coupon_id if discount_obj and discount_obj.stripe_coupon_id else None
-                    session = create_institute_checkout_session(
-                        school, plan, request,
-                        trial_period_days=plan.trial_days if plan.trial_days else 14,
-                        stripe_coupon_id=stripe_coupon,
-                    )
-                    return redirect(session.url)
+                    from notifications.services import send_welcome_notification
+                    send_welcome_notification(user, school=school)
                 except Exception:
-                    logger.exception(
-                        'Stripe checkout session creation failed for institute %s (plan %s)',
-                        school.id, plan.id,
-                    )
-                    messages.warning(
-                        request,
-                        'Your account has been created but we could not redirect to payment. '
-                        'Please set up billing from your dashboard or contact support.',
-                    )
-                    return redirect('subjects_hub')
+                    logger.exception('Failed to send welcome email for HoI user %s', user.pk)
 
-            messages.success(request, f'Welcome! Your school "{center_name}" is ready.')
-            return redirect('subjects_hub')
-        except Exception as e:
+                messages.success(request, f'Welcome! Your school "{center_name}" is ready.')
+                return redirect('subjects_hub')
+
+            # ── Paid plan: card first, account second ─────────────────────────
+            #
+            # The account used to be created here and Stripe visited afterwards,
+            # so closing that tab left a working school with no card on file for
+            # the whole trial. Nothing exists until Stripe confirms the card;
+            # the trial still runs, and Stripe charges nothing until it ends.
+            from django.contrib.auth.hashers import make_password
+            from billing.stripe_service import create_pending_institute_checkout_session
+
+            trial_days = plan.trial_days if plan.trial_days else 14
+            stripe_coupon = (
+                discount_obj.stripe_coupon_id
+                if discount_obj and discount_obj.stripe_coupon_id else None
+            )
+            stripe_session = create_pending_institute_checkout_session(
+                email=email, plan=plan, request=request,
+                trial_period_days=trial_days,
+                stripe_coupon_id=stripe_coupon,
+            )
+            PendingInstituteRegistration.objects.create(
+                stripe_session_id=stripe_session.id,
+                email=email,
+                username=username,
+                password_hash=make_password(password),
+                center_name=center_name,
+                plan_id=plan.id,
+                data=address,
+            )
+            return redirect(stripe_session.url)
+
+        except Exception as exc:
+            logger.exception('Institute registration failed for %s', email)
+            from billing.stripe_health import record_checkout_failure
+            record_checkout_failure(
+                exc, plan=plan, request=request, flow='institute_registration',
+            )
             return render(request, 'accounts/register_teacher.html', {
-                'errors': [str(e)], 'username': username, 'email': email,
+                'errors': [
+                    'We could not start the sign-up. No account was created and '
+                    'you have not been charged. Please try again, or contact '
+                    'support if it persists.',
+                ],
+                'username': username, 'email': email,
                 'center_name': center_name, 'center_mode': True,
                 'plans': self._get_plans(), 'selected_plan_id': plan_id,
                 'discount_code': discount_code_str,
@@ -522,7 +495,7 @@ class IndividualStudentRegisterView(View):
         # Validate discount code if provided
         discount = None
         if discount_code_str:
-            discount = DiscountCode.objects.filter(code=discount_code_str).first()
+            discount = DiscountCode.objects.filter(code__iexact=discount_code_str).first()
             if not discount:
                 ctx['errors'] = ['Discount code not found. Please check and try again.']
                 return render(request, 'accounts/register_individual_student.html', ctx)
@@ -566,12 +539,21 @@ class IndividualStudentRegisterView(View):
                         'date_of_birth': date_of_birth, 'phone': phone,
                         'street_address': street_address, 'city': city,
                         'postal_code': postal_code, 'country': country,
-                        'discount_code': discount_code_str or None,
+                        # The code as *stored*, not as typed. This row is read
+                        # back after payment to attach the code to the new
+                        # subscription — and the tier (Student Basic) is
+                        # resolved from it — so it has to name the real row.
+                        'discount_code': discount.code if discount else None,
                     },
                 )
                 return redirect(stripe_session.url)
             except Exception as exc:
                 logger.exception('Failed to create pending registration Stripe session')
+                from billing.stripe_health import record_checkout_failure
+                record_checkout_failure(
+                    exc, package=package, request=request,
+                    flow='individual_student_registration',
+                )
                 ctx['errors'] = ['Unable to start payment. Please try again.']
                 return render(request, 'accounts/register_individual_student.html', ctx)
 
@@ -969,7 +951,7 @@ class CompleteProfileView(LoginRequiredMixin, View):
         from billing.models import DiscountCode
         discount_obj = None
         if discount_code_str:
-            discount_obj = DiscountCode.objects.filter(code=discount_code_str).first()
+            discount_obj = DiscountCode.objects.filter(code__iexact=discount_code_str).first()
             if not discount_obj:
                 errors.append('Discount code not found. Please check and try again.')
             elif not discount_obj.is_valid():
@@ -1075,12 +1057,32 @@ class CompleteProfileView(LoginRequiredMixin, View):
 
             package = self._get_student_package()
             if package:
-                is_free = discount_obj and discount_obj.is_fully_free
+                # Two different things mean "nothing to charge", and this gate
+                # used to test only the second: ``package.is_free`` is a plan
+                # that costs nothing, ``discount_obj.is_fully_free`` a code that
+                # takes the whole price off. A free package legitimately has no
+                # stripe_price_id (Package.clean only demands one above $0), so
+                # reading the code alone dropped every student on a free plan
+                # who typed no code into the "contact support" branch below —
+                # the free plan was reachable only by naming a code, which is
+                # only ever delivered by the welcome email.
+                is_free = package.is_free or bool(
+                    discount_obj and discount_obj.is_fully_free)
                 if is_free:
-                    # 100% free code — activate immediately, no Stripe needed
-                    if discount_obj:
-                        discount_obj.uses += 1
-                        discount_obj.save(update_fields=['uses'])
+                    # Nothing to charge — activate immediately, no Stripe needed.
+                    #
+                    # A code counts as *redeemed* only if it is what made this
+                    # free. On a free plan a partial code discounts nothing, so
+                    # consuming it would burn one of its ``max_uses`` and record
+                    # a discount that was never applied.
+                    redeemed = (
+                        discount_obj
+                        if discount_obj and discount_obj.is_fully_free
+                        else None
+                    )
+                    if redeemed:
+                        redeemed.uses += 1
+                        redeemed.save(update_fields=['uses'])
                     sub, _ = Subscription.objects.get_or_create(
                         user=user,
                         defaults={
@@ -1092,8 +1094,14 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     # can show/clear it without inferring from Stripe state.
                     sub.package = package
                     sub.status = Subscription.STATUS_ACTIVE
-                    sub.discount_code = discount_obj
-                    sub.discount_percent_snapshot = 100
+                    sub.discount_code = redeemed
+                    # Only a code actually redeemed is a discount. A student on
+                    # a free plan who typed none holds no code, and the HoI
+                    # discount list (classroom/views_admin.py) reads this field
+                    # to decide who is discounted — writing 100 here would
+                    # report a code they never had.
+                    if redeemed:
+                        sub.discount_percent_snapshot = redeemed.discount_percent
                     sub.save()
                     # A code the owner flagged as a Student Basic promotion
                     # puts the student on that tier. Read off the subscription,
@@ -1108,6 +1116,31 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     user.save(update_fields=['package', 'profile_completed'])
                     messages.success(request, 'Profile completed! Free access activated.')
                     return redirect('subjects_hub')
+                elif (discount_obj and not discount_obj.is_fully_free
+                        and not discount_obj.stripe_coupon_id):
+                    # A partial code carries its discount into Stripe as a
+                    # coupon id, and nothing in this app ever creates one — it
+                    # is pasted in by hand, which is why the code list shows a
+                    # "synced" badge. With it missing the checkout below would
+                    # be built with no discount at all: the student is charged
+                    # the FULL price while the subscription records the percent
+                    # they were promised. Overcharging silently is the worst
+                    # outcome available here, so refuse and say so. The owner
+                    # fixes it by putting the coupon id on the code.
+                    logger.error(
+                        'Discount code %s is %s%% off but has no stripe_coupon_id '
+                        '— refusing to charge user %s full price',
+                        discount_obj.code, discount_obj.discount_percent, user.id,
+                    )
+                    messages.error(
+                        request,
+                        f'Your discount code "{discount_obj.code}" could not be '
+                        'applied to the payment, so we have not charged you. '
+                        'Please contact support — do not pay the full price.',
+                    )
+                    return render(request, 'accounts/complete_profile.html', {
+                        'student_package': package,
+                    })
                 elif package.stripe_price_id:
                     # Redirect to Stripe — profile_completed is set True by the success view
                     # (and idempotently by the webhook handler)
@@ -1133,6 +1166,14 @@ class CompleteProfileView(LoginRequiredMixin, View):
                     except Exception as e:
                         logger.error(
                             'Stripe checkout session creation failed for user %s: %s', user.id, e
+                        )
+                        # Also record it where a super admin can see it. The
+                        # log line alone hid an archived Stripe price for two
+                        # weeks while a student retried eleven times.
+                        from billing.stripe_health import record_checkout_failure
+                        record_checkout_failure(
+                            e, user=user, package=package, request=request,
+                            flow='school_student_complete_profile',
                         )
                         messages.error(request, 'Could not redirect to payment page. Please try again or contact support.')
                         return render(request, 'accounts/complete_profile.html', {

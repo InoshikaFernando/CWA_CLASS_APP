@@ -714,7 +714,7 @@ class DiscountCodeCreateView(SuperuserRequiredMixin, View):
 
         if not code:
             errors['code'] = 'Code is required.'
-        elif InstituteDiscountCode.objects.filter(code=code).exists():
+        elif InstituteDiscountCode.objects.filter(code__iexact=code).exists():
             errors['code'] = 'This code already exists.'
 
         try:
@@ -782,14 +782,13 @@ class DiscountCodeCreateView(SuperuserRequiredMixin, View):
             expires_at=expires_at_val,
         )
 
-        # Auto-sync to Stripe for non-100% discounts
-        if not dc.is_fully_free:
-            try:
-                from .stripe_service import sync_discount_to_stripe, _stripe_configured
-                if _stripe_configured():
-                    sync_discount_to_stripe(dc)
-            except Exception as e:
-                logger.warning('Stripe discount sync failed: %s', e)
+        # Auto-sync to Stripe for non-100% discounts. A failure here is NOT
+        # cosmetic: without the coupon, checkout charges the full price.
+        from .stripe_service import ensure_stripe_coupon, UNSYNCED_COUPON_WARNING
+        synced, sync_error = ensure_stripe_coupon(dc)
+        if not synced:
+            messages.warning(request, UNSYNCED_COUPON_WARNING.format(
+                code=dc.code, error=sync_error))
 
         log_event(
             user=request.user, school=None, category='data_change',
@@ -1527,6 +1526,15 @@ class StudentDiscountCodeEditView(SuperuserRequiredMixin, View):
         dc.expires_at = expires_at_val
         dc.save()
 
+        # Re-saving is the admin's route out of a failed create-time sync: a
+        # code stuck with no coupon would otherwise charge full price forever,
+        # since nothing else ever revisits it.
+        from .stripe_service import ensure_stripe_coupon, UNSYNCED_COUPON_WARNING
+        synced, sync_error = ensure_stripe_coupon(dc)
+        if not synced:
+            messages.warning(request, UNSYNCED_COUPON_WARNING.format(
+                code=dc.code, error=sync_error))
+
         dc.applicable_packages.set(data.getlist('applicable_packages'))
 
         log_event(
@@ -1659,9 +1667,9 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
             errors['code'] = 'Code is required.'
         else:
             # Check uniqueness across all 3 models
-            if (InstituteDiscountCode.objects.filter(code=code).exists()
-                    or PromoCode.objects.filter(code=code).exists()
-                    or DiscountCode.objects.filter(code=code).exists()):
+            if (InstituteDiscountCode.objects.filter(code__iexact=code).exists()
+                    or PromoCode.objects.filter(code__iexact=code).exists()
+                    or DiscountCode.objects.filter(code__iexact=code).exists()):
                 errors['code'] = 'This code already exists.'
 
         # Validate discount percent
@@ -1812,13 +1820,11 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
             if selected_modules:
                 dc.applicable_modules.set(selected_modules)
 
-            if not dc.is_fully_free:
-                try:
-                    from .stripe_service import sync_discount_to_stripe, _stripe_configured
-                    if _stripe_configured():
-                        sync_discount_to_stripe(dc)
-                except Exception as e:
-                    logger.warning('Stripe discount sync failed: %s', e)
+            from .stripe_service import ensure_stripe_coupon, UNSYNCED_COUPON_WARNING
+            synced, sync_error = ensure_stripe_coupon(dc)
+            if not synced:
+                messages.warning(request, UNSYNCED_COUPON_WARNING.format(
+                    code=dc.code, error=sync_error))
 
             log_event(
                 user=request.user, school=None, category='data_change',
@@ -1863,13 +1869,11 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
             if selected_packages:
                 dc.applicable_packages.set(selected_packages)
 
-            if not dc.is_fully_free:
-                try:
-                    from .stripe_service import sync_individual_discount_to_stripe, _stripe_configured
-                    if _stripe_configured():
-                        sync_individual_discount_to_stripe(dc)
-                except Exception as e:
-                    logger.warning('Stripe discount sync failed: %s', e)
+            from .stripe_service import ensure_stripe_coupon, UNSYNCED_COUPON_WARNING
+            synced, sync_error = ensure_stripe_coupon(dc)
+            if not synced:
+                messages.warning(request, UNSYNCED_COUPON_WARNING.format(
+                    code=dc.code, error=sync_error))
 
             log_event(
                 user=request.user, school=None, category='data_change',

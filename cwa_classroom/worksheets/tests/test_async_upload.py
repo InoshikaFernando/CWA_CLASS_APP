@@ -7,6 +7,7 @@ from django.urls import reverse
 
 from accounts.models import CustomUser, Role
 from classroom.models import School, SchoolTeacher
+from billing.testing import grant_ai_pages
 from worksheets.models import WorksheetUploadSession
 from worksheets.tasks import process_worksheet_pdf
 
@@ -26,6 +27,7 @@ class WorksheetAsyncTestBase(TestCase):
             name='WS Async School', slug='ws-async-school', admin=cls.owner,
         )
         SchoolTeacher.objects.get_or_create(school=cls.school, teacher=cls.owner)
+        grant_ai_pages(cls.school)
         cls.other = CustomUser.objects.create_user(
             'ws_other', 'ws_other@example.com', 'pass1!',
             profile_completed=True, must_change_password=False,

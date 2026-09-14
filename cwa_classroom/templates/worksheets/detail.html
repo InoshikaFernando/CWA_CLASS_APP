@@ -88,7 +88,7 @@
 
             {% elif wq.question %}
             {% with q=wq.question %}
-            <p class="text-gray-800 text-lg leading-relaxed">{{ q.question_text|exponents }}</p>
+            <p class="text-gray-800 text-lg leading-relaxed whitespace-pre-line">{{ q.question_text|exponents }}</p>
             {% if q.image %}
             <img src="{{ q.image.url }}" alt="Question image"
                  class="max-h-56 rounded-xl border border-gray-200 object-contain" />

@@ -18,10 +18,13 @@ Multi-school design:
     independent of any school subscriptions. One payment covers access
     regardless of how many school classes they join.
 """
+import logging
 from decimal import Decimal
 
 from classroom.models import ClassRoom, SchoolStudent, SchoolTeacher, School
 from accounts.models import Role
+
+logger = logging.getLogger(__name__)
 
 
 def get_school_subscription(school):
@@ -122,6 +125,153 @@ def has_module_any_school(user, module_slug):
     return False
 
 
+def _parent_linked_modules(user):
+    """Modules held by the schools of this user's linked children.
+
+    A parent belongs to no school of their own: ``get_all_schools_for_user``
+    reads admin, teacher and student roles, and a parent is none of them. So
+    without this a parent resolves to *no* modules at all, and every gate that
+    asks the request rather than the student denies them — the parent-facing
+    half of invoicing, and every parent opening the report their child's
+    school has paid for.
+
+    That has been invisible so far only because ``MODULE_ENFORCEMENT`` ships
+    in shadow: the middleware records the denial and lets the request through.
+    Flipping to enforce without this would lock parents out of features their
+    school is being billed for, which is the worst possible first impression
+    of the module system.
+
+    View-level gates already got this right one at a time
+    (:func:`student_school_has_module`). This is the same rule, resolved once
+    per request, so the middleware's answer agrees with theirs.
+
+    Only ever *adds* entitlements. A parent can hold nothing a school has not
+    already bought, so this cannot open a gate for anyone else.
+    """
+    from classroom.models import ParentStudent
+    from billing.models import ModuleSubscription
+
+    school_ids = ParentStudent.objects.filter(
+        parent=user, is_active=True, school__isnull=False,
+    ).values_list('school_id', flat=True)
+
+    if not school_ids:
+        return frozenset()
+
+    return frozenset(
+        ModuleSubscription.objects.filter(
+            is_active=True,
+            school_subscription__school_id__in=school_ids,
+        ).values_list('module', flat=True)
+    )
+
+
+def student_school_has_module(student, module_slug):
+    """Whether the SCHOOL that *student* belongs to has *module_slug* active.
+
+    Three near-neighbours, and picking the wrong one is a silent bug rather
+    than an error, so the names spell out whose modules each one reads:
+
+    * :func:`has_module_any_school` — the *viewer's* schools.
+    * :func:`student_has_module`    — the student's OWN per-student modules
+      (``billing.StudentModule``), which is a different table entirely.
+    * this one                      — the *student's* schools.
+
+    Reports need this one. They are read by parents, who belong to no school
+    of their own, so asking about the viewer would deny a parent the report
+    their child's school has paid for; and they are a school-bought module, so
+    asking about the student's own StudentModule rows would deny everybody,
+    since nearly nobody has any.
+    """
+    if student is None:
+        return False
+
+    schools = get_all_schools_for_user(student)
+    if not schools.exists():
+        # Individual learner: no institute owns their data, so the institute
+        # module economy does not apply to them. Their access is governed by
+        # their own Subscription and the trial wall, which is the same call
+        # any_school_has_active_subscription() makes for the same reason.
+        return True
+
+    return any(has_module(school, module_slug) for school in schools)
+
+
+def school_ids_with_module(module_slug):
+    """School ids with *module_slug* active, as a queryset for filtering rows.
+
+    Needed where the gate cannot hang off the request: the report API returns
+    rows for other people's children, and the schedule cron runs with no
+    request at all. Matches :func:`has_module` in treating a school with no
+    subscription as not having the module.
+
+    *module_slug* may name a tier family, in which case a school holding any
+    tier matches. Passing one tier of a family matches the whole family too —
+    a cron that hard-coded Starter must not stop building for the schools that
+    pay for Unlimited.
+    """
+    from billing import registry
+    from billing.models import ModuleSubscription
+    return ModuleSubscription.objects.filter(
+        module__in=registry.satisfied_by(module_slug),
+        is_active=True,
+    ).values_list('school_subscription__school_id', flat=True)
+
+
+def entitled_modules(request):
+    """Every module slug this request is entitled to, resolved once.
+
+    One query for the school modules instead of the per-school, per-module
+    walk :func:`has_module_any_school` does — a sidebar asking about six
+    modules used to pay that six times over, and the middleware asks on every
+    request.
+
+    The result is the union of two things a user can hold modules through:
+    the schools they belong to (``ModuleSubscription``) and, where the slug is
+    one of theirs, their own subscription (``StudentModule``). One set, so a
+    caller never has to know which of the two a given slug came from.
+
+    Cached on the request. A request that grants a module to itself mid-flight
+    (the checkout success page) must re-read rather than trust this — call
+    :func:`clear_entitlement_cache` after such a write.
+    """
+    cached = getattr(request, '_entitled_modules', None)
+    if cached is not None:
+        return cached
+
+    user = getattr(request, 'user', None)
+    if user is None or not getattr(user, 'is_authenticated', False):
+        result = frozenset()
+        request._entitled_modules = result
+        return result
+
+    from billing.models import ModuleSubscription
+
+    slugs = set(
+        ModuleSubscription.objects.filter(
+            is_active=True,
+            school_subscription__school__in=get_all_schools_for_user(user),
+        ).values_list('module', flat=True)
+    )
+    slugs.update(active_student_modules(user))
+    slugs.update(_parent_linked_modules(user))
+
+    result = frozenset(slugs)
+    request._entitled_modules = result
+    return result
+
+
+def clear_entitlement_cache(request):
+    """Drop the cached set so the next read re-queries.
+
+    Needed by the few views that change entitlement and then keep rendering —
+    the module toggle and the checkout return — because otherwise the page
+    that just sold a module renders as though it had not.
+    """
+    if hasattr(request, '_entitled_modules'):
+        del request._entitled_modules
+
+
 def get_school_for_user(user):
     """
     Resolve the primary school for a user.
@@ -220,15 +370,15 @@ def check_ai_import_quota(school):
     if not sub:
         return (0, 0, 0)
 
-    ai_module = sub.modules.filter(
-        module__startswith='ai_import_', is_active=True,
-    ).select_related().first()
-    if not ai_module:
+    # Strongest tier held, never `.first()` off an unordered queryset: a school
+    # that ends up on two rows must get the quota it pays most for.
+    tier = strongest_tier(sub, AI_IMPORT_TIERS)
+    if not tier:
         return (0, 0, 0)
 
     from billing.models import ModuleProduct
     try:
-        product = ModuleProduct.objects.get(module=ai_module.module)
+        product = ModuleProduct.objects.get(module=tier)
     except ModuleProduct.DoesNotExist:
         return (0, 0, 0)
 
@@ -248,6 +398,155 @@ def check_ai_import_quota(school):
     used = usage.pages_processed
     remaining = max(0, limit - used)
     return (remaining, limit, used)
+
+
+#: Tier ladders, WEAKEST FIRST. Order is load-bearing — :func:`strongest_tier`
+#: reads these backwards — so a slug added in the wrong place silently changes
+#: what a school on two tiers resolves to.
+QUESTION_AUTOMATION_TIERS = (
+    'question_automation_starter',
+    'question_automation_professional',
+    'question_automation_unlimited',
+)
+
+AI_IMPORT_TIERS = (
+    'ai_import_starter',
+    'ai_import_professional',
+    'ai_import_enterprise',
+)
+
+
+def strongest_tier(sub, ordered_tiers):
+    """The strongest slug in *ordered_tiers* that *sub* holds, or None.
+
+    One query, and one rule for every ladder: read the tiers weakest-first and
+    answer with the last match.
+
+    A school is not supposed to hold two tiers of one family — the add path
+    retires the sibling, and :func:`deactivate_sibling_modules` does the same
+    for grants — but "supposed to" is not a guarantee. An upgrade that fails
+    between adding the new item and removing the old, a grant that lands
+    alongside an existing tier, a Stripe webhook arriving out of order: any of
+    those leaves two active rows, and ``unique_together`` is per (subscription,
+    module) so nothing at the database level prevents it.
+
+    When that happens the school must get the tier it pays MOST for. Both of
+    the resolvers this replaces did the opposite — one walked its ladder
+    forwards and answered "starter" for a school holding all three, the other
+    took ``.first()`` off an unordered queryset and answered arbitrarily.
+    Neither raised; the school was simply served a smaller quota than it bought
+    and nobody found out.
+    """
+    if not sub:
+        return None
+    held = set(
+        sub.modules.filter(
+            module__in=ordered_tiers, is_active=True,
+        ).values_list('module', flat=True)
+    )
+    for slug in reversed(tuple(ordered_tiers)):
+        if slug in held:
+            return slug
+    return None
+
+
+def question_automation_tier(school):
+    """The strongest question-automation tier *school* holds, or None."""
+    return strongest_tier(get_school_subscription(school), QUESTION_AUTOMATION_TIERS)
+
+
+def ai_import_tier(school):
+    """The strongest AI-import tier *school* holds, or None."""
+    return strongest_tier(get_school_subscription(school), AI_IMPORT_TIERS)
+
+
+def deactivate_sibling_modules(school_subscription, module_slug):
+    """Retire the other tiers of *module_slug*'s family. Returns the slugs hit.
+
+    A no-op for a module that stands alone, so callers apply it unconditionally.
+
+    This does NOT touch Stripe. Callers that bill through Stripe must remove
+    the subscription item as well — ``ModuleToggleView`` does — or the school
+    keeps paying for a tier that no longer takes effect. It exists for the
+    paths that never had a Stripe item to begin with: comped grants, trials,
+    and local activation.
+    """
+    from django.utils import timezone as tz
+
+    from billing import registry
+    from billing.models import ModuleSubscription
+
+    siblings = registry.siblings_of(module_slug)
+    if not siblings:
+        return frozenset()
+
+    stale = ModuleSubscription.objects.filter(
+        school_subscription=school_subscription,
+        module__in=siblings,
+        is_active=True,
+    )
+    hit = frozenset(stale.values_list('module', flat=True))
+    if hit:
+        stale.update(is_active=False, deactivated_at=tz.now())
+    return hit
+
+
+def running_schedule_count(school, on_date=None):
+    """Schedules running for *school* right now.
+
+    "Running" is not "ever created" and not merely ``is_active``. Nothing sets
+    ``is_active`` back to False when a term ends — its help text calls it a
+    pause switch — so a school that creates one schedule per class per term
+    accumulates them forever: ten classes reach forty rows within a year and
+    would trip a fifteen-schedule limit in their second term while never
+    running more than ten at once.
+
+    So the date window is part of the definition. ``start_date`` and
+    ``end_date`` are always populated, resolved from the scope on save, which
+    is what lets term-, year- and custom-scoped schedules answer this the same
+    way.
+    """
+    from django.utils import timezone as tz
+    from homework.models import QuestionSchedule
+
+    on_date = on_date or tz.localdate()
+    return QuestionSchedule.objects.filter(
+        classroom__school=school,
+        is_active=True,
+        start_date__lte=on_date,
+        end_date__gte=on_date,
+    ).count()
+
+
+def check_schedule_limit(school, on_date=None):
+    """May *school* start another schedule?
+
+    Returns ``(within_limit, current, limit)`` where a limit of None means
+    unlimited. A school with no tier gets ``(False, current, 0)`` — the module
+    gate has already refused them, and reporting "within limit" here would let
+    a caller that checked only this one through.
+    """
+    tier = question_automation_tier(school)
+    current = running_schedule_count(school, on_date=on_date)
+    if not tier:
+        return (False, current, 0)
+
+    from billing.models import ModuleProduct
+    try:
+        product = ModuleProduct.objects.get(module=tier)
+    except ModuleProduct.DoesNotExist:
+        # A tier that is sellable but has no product row is a seeding gap, not
+        # a reason to block a school that has paid. Surface it and allow.
+        logger.error(
+            'No ModuleProduct for %s — cannot read schedules_limit, allowing.',
+            tier,
+        )
+        return (True, current, None)
+
+    limit = product.schedules_limit
+    if limit is None:
+        return (True, current, None)
+    return (current < limit, current, limit)
 
 
 def record_invoice_usage(school, count):
@@ -451,8 +750,8 @@ def codes_on_subscription(subscription):
         codes.append(subscription.discount_code)
     slug = (subscription.promo_code_used or '').strip()
     if slug:
-        codes.append(PromoCode.objects.filter(code=slug).first()
-                     or DiscountCode.objects.filter(code=slug).first())
+        codes.append(PromoCode.objects.filter(code__iexact=slug).first()
+                     or DiscountCode.objects.filter(code__iexact=slug).first())
     return [code for code in codes if code is not None]
 
 

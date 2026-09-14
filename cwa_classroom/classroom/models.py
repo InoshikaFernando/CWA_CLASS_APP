@@ -3,6 +3,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 from django.utils.formats import time_format
 
 
@@ -822,6 +823,72 @@ class SubTopic(models.Model):
 
     def __str__(self):
         return f'{self.topic_level} — {self.name}'
+
+
+# ---------------------------------------------------------------------------
+# Topic aliases: ids a merge retired
+# ---------------------------------------------------------------------------
+
+class TopicAlias(models.Model):
+    """An id a topic used to have, and the topic that absorbed it.
+
+    ``topic_merge.merge_topics`` re-points every row that referenced the
+    absorbed topic onto the survivor and then DELETES it. What it cannot
+    re-point is a link somebody is already holding — a bookmark, an open tab, a
+    browser history entry, a URL pasted into a message — and each of those
+    turns into a bare 404 the moment the merge runs. The student is not told
+    the topic moved; they are told it does not exist.
+
+    An alias row keeps the retired id resolvable, so a view that takes a topic
+    id in its URL can send the visitor to the survivor instead of a dead end.
+
+    It is written inside the merge's own transaction rather than derived from
+    the audit log afterwards: ``merge_topics`` swallows audit failures on
+    purpose so that logging can never break a merge, and a redirect students
+    depend on must not rest on a record that is allowed to go missing.
+
+    ``old_topic_id`` is the primary key — one id retires exactly once — and it
+    is a plain integer, not a foreign key, precisely because the row it names
+    is gone.
+    """
+
+    old_topic_id = models.PositiveIntegerField(
+        primary_key=True,
+        help_text='The id the absorbed topic had before the merge deleted it.',
+    )
+    topic = models.ForeignKey(
+        Topic, on_delete=models.CASCADE, related_name='aliases',
+        help_text='The surviving topic this id now resolves to.',
+    )
+    old_name = models.CharField(max_length=100, blank=True)
+    old_slug = models.SlugField(max_length=100, blank=True)
+    # ``default``, not ``auto_now_add``: the backfill below dates historical
+    # aliases from the merge's own audit entry, and auto_now_add would stamp
+    # every one of them with the moment the migration ran instead.
+    merged_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        verbose_name_plural = 'topic aliases'
+        ordering = ['-merged_at', '-old_topic_id']
+
+    def __str__(self):
+        return f'{self.old_name or self.old_topic_id} → {self.topic.name}'
+
+    @classmethod
+    def resolve(cls, old_topic_id):
+        """The surviving topic a retired id means today, or ``None``.
+
+        ``None`` is the honest answer for an id that never existed, and the
+        caller should still 404 on it — an alias makes a *moved* topic
+        reachable, it does not invent one.
+
+        Aliases are kept pointing at a live topic by the merge itself (they are
+        ordinary rows referencing a topic, so a later merge re-points them
+        along with everything else), so this is a single hop, not a chain walk.
+        """
+        alias = (cls.objects.select_related('topic')
+                 .filter(old_topic_id=old_topic_id).first())
+        return alias.topic if alias else None
 
 
 # ---------------------------------------------------------------------------

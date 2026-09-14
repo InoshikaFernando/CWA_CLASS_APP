@@ -29,7 +29,9 @@ name: Weekly Question Audit
 on:
   schedule:
     # 19:00 UTC Sunday = 07:00 Monday NZST — a fresh report waiting on Monday
-    # morning, after the weekend release has landed on test.
+    # morning, covering whatever landed on `test` over the week. This is a
+    # question-bank audit, not a release: production ships on demand, whenever
+    # a `test` -> `main` promotion PR is merged.
     - cron: '0 19 * * 0'
   workflow_dispatch:
     inputs:

@@ -1,6 +1,8 @@
-"""Tests for the worksheet "Same image as previous" reuse control — copies an
-earlier question's figure onto the current question under a fresh ref, for
-consecutive questions that share one diagram the extractor didn't group.
+"""Tests for the worksheet "Same image as previous" reuse control — points the
+current question at an earlier question's figure, for consecutive questions that
+share one diagram the extractor didn't group. The figure is referenced, never
+copied: one diagram means one entry in ``extracted_images`` and, at confirm, one
+stored file.
 """
 import json
 
@@ -53,7 +55,7 @@ class WorksheetReuseImageTests(TestCase):
         self.assertIn('data-reuse="1"', html)
         self.assertIn('reuse-image/', html)
 
-    def test_reuse_copies_image_under_fresh_ref(self):
+    def test_reuse_points_at_source_ref_without_copying_bytes(self):
         s = self._session()
         self.client.force_login(self.teacher)
         r = self.client.post(
@@ -63,14 +65,28 @@ class WorksheetReuseImageTests(TestCase):
             content_type='application/json',
         )
         self.assertEqual(r.status_code, 200)
-        new_ref = r.json()['ref']
-        self.assertNotEqual(new_ref, 'orig.png')
+        self.assertEqual(r.json()['ref'], 'orig.png')
         s.refresh_from_db()
-        self.assertEqual(s.extracted_images[new_ref], s.extracted_images['orig.png'])
+        # Referenced, not duplicated — still one blob in the session.
+        self.assertEqual(list(s.extracted_images), ['orig.png'])
         q1 = s.extracted_data['questions'][1]
-        self.assertEqual(q1['image_ref'], new_ref)
+        self.assertEqual(q1['image_ref'], 'orig.png')
         self.assertTrue(q1['has_image'])
         self.assertEqual(q1['image_bbox_frac'], [0.2, 0.2, 0.8, 0.6])
+        # The source question keeps its own image.
+        self.assertEqual(s.extracted_data['questions'][0]['image_ref'], 'orig.png')
+
+    def test_reuse_leaves_a_question_with_no_earlier_image_alone(self):
+        s = self._session()
+        self.client.force_login(self.teacher)
+        r = self.client.post(
+            reverse('worksheets:pdf_reuse_image', args=[s.pk]),
+            data=json.dumps({'q_idx': 1, 'source_ref': 'ghost.png'}),
+            content_type='application/json',
+        )
+        self.assertEqual(r.status_code, 400)
+        s.refresh_from_db()
+        self.assertIsNone(s.extracted_data['questions'][1].get('image_ref'))
 
     def test_other_teacher_cannot_reuse(self):
         s = self._session()

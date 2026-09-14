@@ -145,3 +145,70 @@ class TestDiscountInEmail(WelcomeDiscountBase):
         self.client.post(self._resend_url(self.student.id), {'include_discount': '1'})
         body = mail.outbox[0].alternatives[0][0]
         self.assertNotIn('MHMEBC75', body)
+
+
+# ---------------------------------------------------------------------------
+# A code the gate would reject must not be emailed
+# ---------------------------------------------------------------------------
+
+class TestExpiredOrExhaustedDiscount(WelcomeDiscountBase):
+    """``is_active`` is only one of three ways a code can be invalid.
+
+    ``DiscountCode.is_valid()`` also rejects a code past ``expires_at`` or at
+    ``max_uses``, and the redemption gate checks all three. Emailing a code the
+    gate will refuse is worse than emailing none: the student has no way to tell
+    a dead code from a mistyped one, and the gate answers "expired or reached
+    its usage limit" for a code the school still believes is live.
+    """
+
+    def _resolve(self):
+        from classroom.views_password_admin import _resolve_school_discount
+        return _resolve_school_discount(self.school)
+
+    def test_expired_code_is_not_resolved(self):
+        from django.utils import timezone
+        from datetime import timedelta
+        DiscountCode.objects.filter(code='MHMEBC75').update(
+            expires_at=timezone.now() - timedelta(days=1),
+        )
+        self.assertEqual(self._resolve(), (None, None))
+
+    def test_exhausted_code_is_not_resolved(self):
+        DiscountCode.objects.filter(code='MHMEBC75').update(max_uses=5, uses=5)
+        self.assertEqual(self._resolve(), (None, None))
+
+    def test_code_with_uses_left_is_still_resolved(self):
+        DiscountCode.objects.filter(code='MHMEBC75').update(max_uses=5, uses=4)
+        self.assertEqual(self._resolve(), ('MHMEBC75', 75))
+
+    def test_expired_code_is_not_offered_in_the_modal(self):
+        from django.utils import timezone
+        from datetime import timedelta
+        DiscountCode.objects.filter(code='MHMEBC75').update(
+            expires_at=timezone.now() - timedelta(days=1),
+        )
+        resp = self.client.get(self._modal_url(self.student.id))
+        self.assertNotContains(resp, 'Include subscription discount')
+
+    def test_expired_code_is_not_put_in_the_email(self):
+        from django.utils import timezone
+        from datetime import timedelta
+        DiscountCode.objects.filter(code='MHMEBC75').update(
+            expires_at=timezone.now() - timedelta(days=1),
+        )
+        self.client.post(self._resend_url(self.student.id), {'include_discount': '1'})
+        self.assertEqual(len(mail.outbox), 1)
+        body = mail.outbox[0].alternatives[0][0]
+        self.assertNotIn('MHMEBC75', body)
+
+    def test_exhausted_code_is_not_put_in_the_email(self):
+        DiscountCode.objects.filter(code='MHMEBC75').update(max_uses=1, uses=1)
+        self.client.post(self._resend_url(self.student.id), {'include_discount': '1'})
+        body = mail.outbox[0].alternatives[0][0]
+        self.assertNotIn('MHMEBC75', body)
+
+    def test_lowercase_stored_code_still_resolves(self):
+        """The school setting is canonicalised, but a code created elsewhere
+        (fixture, shell, import) may be stored lower-case."""
+        DiscountCode.objects.filter(code='MHMEBC75').update(code='mhmebc75')
+        self.assertEqual(self._resolve(), ('mhmebc75', 75))

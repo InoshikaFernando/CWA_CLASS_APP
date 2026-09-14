@@ -17,6 +17,7 @@ from django.utils import timezone
 from django.views import View
 
 from audit.services import log_event
+from classroom import progress_art
 from classroom.models import ClassRoom, ClassStudent, ClassTeacher, SchoolStudent, Topic
 from classroom.notifications import create_notification
 from classroom.subject_registry import (
@@ -959,6 +960,14 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
     Reuses the exact same HomeworkQuestion records (same question PKs)
     so the AIGradingCache is shared — answers from any class help
     grade all other classes using the same homework.
+
+    The copies can be given a different title than the original. Because one
+    submission fans out to several classes at once, renaming afterwards would
+    mean editing every copy by hand, so the title is settable here — the same
+    ``homework_title`` override the PDF and JSON import confirm screens offer.
+    The title also decides what counts as "already assigned": a class holding
+    the *original* title is not holding the *renamed* one, so it stays a valid
+    target once the title is changed.
     """
 
     def get(self, request, homework_id):
@@ -989,6 +998,20 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
         homework = get_object_or_404(Homework, id=homework_id)
         _check_teacher_owns_class(request, homework.classroom)
 
+        # Title for the copies. Blank falls back to the original, so a caller
+        # that does not post the field at all keeps the old behaviour.
+        new_title = request.POST.get('homework_title', '').strip() or homework.title
+        title_max = Homework._meta.get_field('title').max_length
+        if len(new_title) > title_max:
+            # Truncating silently would leave the teacher with a title they
+            # never typed, and a duplicate check that no longer matches.
+            messages.error(
+                request,
+                f'The title is too long — {len(new_title)} characters, '
+                f'but the maximum is {title_max}.',
+            )
+            return redirect('homework:assign_to_class', homework_id=homework_id)
+
         classroom_ids = request.POST.getlist('classroom_ids')
         if not classroom_ids:
             messages.error(request, 'Please select at least one class.')
@@ -1006,8 +1029,10 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
                 continue
             classroom = ClassRoom.objects.get(pk=cid)
 
-            # Skip if already assigned
-            if Homework.objects.filter(title=homework.title, classroom=classroom).exists():
+            # Skip if already assigned — judged on the title being assigned,
+            # not the original, so a rename can legitimately target a class
+            # that already holds the original.
+            if Homework.objects.filter(title=new_title, classroom=classroom).exists():
                 continue
 
             # Create new Homework for this classroom, copying all settings.
@@ -1017,7 +1042,7 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
             new_hw = Homework.objects.create(
                 classroom=classroom,
                 created_by=request.user,
-                title=homework.title,
+                title=new_title,
                 description=homework.description,
                 homework_type=homework.homework_type,
                 subject_slug=homework.subject_slug,
@@ -1044,7 +1069,7 @@ class HomeworkAssignToClassView(LoginRequiredMixin, View):
         if created:
             messages.success(
                 request,
-                f'Homework assigned to: {", ".join(created)}. '
+                f'Homework "{new_title}" assigned to: {", ".join(created)}. '
                 'All classes share the same grading cache — answers improve accuracy for everyone.'
             )
         else:
@@ -1123,6 +1148,46 @@ class StudentHomeworkListView(LoginRequiredMixin, View):
         return render(request, self.template_name, {'rows': rows})
 
 
+def _homework_progress_art(homework, student, items, draft):
+    """Context for the take page's progress-art panel — the picture that draws
+    itself as the student answers.
+
+    How much is drawn is COUNTED from the draft, never stored: that is what
+    makes "save now, finish tomorrow" resume the drawing for free. Only the
+    choice of picture is persisted (on the draft, by the save-progress view),
+    so a paper picked up days later continues the same one.
+    """
+    saved = (draft.answers_data or {}) if draft else {}
+    answered = 0
+    for item in items:
+        plugin = get_plugin(item['subject_slug'])
+        if plugin is None:
+            continue
+        item['is_answered'] = any(
+            progress_art.answer_is_present(saved.get(name))
+            for name in plugin.answer_field_names(item['content_id'])
+        )
+        if item['is_answered']:
+            answered += 1
+
+    picture = progress_art.resolve(
+        draft.art_picture_key if draft else '',
+        len(items),
+        _homework_art_seed(homework, student),
+        year_level=progress_art.year_level_for_classroom(homework.classroom),
+    )
+    ctx = progress_art.context(picture, done=answered, total=len(items))
+    # The take page shows every question at once, so the panel follows the
+    # student's typing by counting `data-pa-group` blocks inside the form.
+    ctx['scope'] = '#hw-form'
+    return ctx
+
+
+def _homework_art_seed(homework, student):
+    """Stable per (homework, student) — a reload must not reroll the picture."""
+    return f'homework-{homework.pk}-{getattr(student, "pk", "")}'
+
+
 class StudentHomeworkTakeView(LoginRequiredMixin, View):
     template_name = 'homework/student_take.html'
 
@@ -1144,7 +1209,7 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
         # complete overdue work; lateness is reflected in the submission status,
         # not enforced as a hard block. Only the attempt cap gates access.
 
-        hw_questions = list(homework.homework_questions.order_by('order'))
+        hw_questions = live_homework_questions(homework)
 
         # Build one "item" per HomeworkQuestion by dispatching to the plugin
         # bound to its subject_slug. Each item carries the template path + the
@@ -1182,6 +1247,7 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             'draft_answers': draft.answers_data if draft else {},
             'draft_time_taken': draft.time_taken_seconds if draft else 0,
             'draft_saved_at': draft.updated_at.isoformat() if draft else '',
+            'progress_art': _homework_progress_art(homework, request.user, items, draft),
         })
 
     def post(self, request, homework_id):
@@ -1200,7 +1266,7 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
             return redirect('homework:student_list')
 
         time_taken = int(request.POST.get('time_taken_seconds', 0))
-        hw_questions = list(homework.homework_questions.order_by('order'))
+        hw_questions = live_homework_questions(homework)
 
         # Grade all items OUTSIDE the DB transaction — for coding homework each
         # plugin.grade_answer() hits Piston over HTTP (2–10s per call). Running
@@ -1352,6 +1418,33 @@ class StudentHomeworkTakeView(LoginRequiredMixin, View):
         return redirect('homework:student_result', submission_id=submission.id)
 
 
+def live_homework_questions(homework):
+    """The items a homework should actually serve (CPP-410).
+
+    A retired question keeps its ``HomeworkQuestion`` row — what a homework
+    contained is a fact about the past and must not be rewritten — but it has
+    to stop reaching children the MOMENT it is withdrawn, not at the next
+    assignment. A question is normally retired because it is broken.
+
+    So the filter lives here, in the one place the take page and the grader
+    both read, rather than in each of them separately: two copies would drift,
+    and the failure mode is a child meeting a question we have already decided
+    is unanswerable.
+
+    Non-maths rows (coding, and any future subject) carry no ``question`` FK
+    and are always served — retirement is a maths-question concept today.
+    """
+    rows = list(
+        homework.homework_questions
+        .select_related('question')
+        .order_by('order')
+    )
+    return [
+        hwq for hwq in rows
+        if not (hwq.question_id and hwq.question and hwq.question.is_retired)
+    ]
+
+
 class SaveHomeworkProgressView(LoginRequiredMixin, View):
     """AJAX endpoint: checkpoint a student's in-progress answers as a draft.
 
@@ -1416,12 +1509,27 @@ class SaveHomeworkProgressView(LoginRequiredMixin, View):
         else:
             merged = answers
 
+        # Pin the progress-art picture the first time this student saves. It is
+        # derived server-side from the same seed the take page used rather than
+        # accepted from the client — a posted key would let a student reroll
+        # until they liked the drawing, and would break the whole point of
+        # storing it, which is that the picture cannot change under them.
+        art_key = existing.art_picture_key if existing else ''
+        if not progress_art.get(art_key):
+            art_key = progress_art.resolve(
+                '',
+                len(live_homework_questions(homework)),
+                _homework_art_seed(homework, request.user),
+                year_level=progress_art.year_level_for_classroom(homework.classroom),
+            ).key
+
         draft, _ = HomeworkDraft.objects.update_or_create(
             homework=homework,
             student=request.user,
             defaults={
                 'answers_data': merged,
                 'time_taken_seconds': time_taken,
+                'art_picture_key': art_key,
             },
         )
 
@@ -2149,6 +2257,7 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
         from worksheets.services import (
             answer_review_warning, backfill_constructions,
             preview_question_type_choices, question_source_page,
+            spec_panel_for_type, SPEC_GRADED_QUESTION_TYPES,
         )
 
         # Sessions extracted before drawing questions were routed to the teacher
@@ -2188,6 +2297,14 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             # Flag a suspect answer key (explanation disagrees with / second-guesses
             # the ticked answer) so the teacher checks it before confirming.
             q['answer_warning'] = answer_review_warning(q)
+            # Which structured-spec panel this card's type edits ('' for the
+            # plain types). Every panel is still rendered so the type dropdown
+            # can reveal one without a reload, but the inactive ones are
+            # DISABLED — a disabled field is not posted, and posting all of them
+            # for every question is what pushed a long workbook past Django's
+            # request-parser field ceiling and returned a bare 400 on submit.
+            q['spec_panel'] = spec_panel_for_type(q.get('question_type'))
+            q['hide_answers'] = q.get('question_type') in SPEC_GRADED_QUESTION_TYPES
             # Pre-format the structured-spec JSON for the editable textareas.
             if q.get('plane_spec'):
                 q['plane_spec_json'] = json.dumps(q['plane_spec'], indent=2)
@@ -2268,6 +2385,10 @@ class HomeworkPDFPreviewView(RoleRequiredMixin, View):
             """Apply this question's posted form fields onto the dict q (in place)."""
             prefix = f'q_{idx}_'
             q['include'] = request.POST.get(f'{prefix}include') == 'on'
+            # "Reviewed" tick on a flagged question — keeps needs_review (and its
+            # reason) for the record but stops the preview shouting about it, and
+            # persists so coming back to the page does not re-raise the alarm.
+            q['review_ack'] = request.POST.get(f'{prefix}review_ack') == 'on'
             q['question_text'] = request.POST.get(f'{prefix}text', q.get('question_text', ''))
             q['question_type'] = accepted_question_type(
                 request.POST.get(f'{prefix}type'), q.get('question_type', 'short_answer'))
@@ -2990,6 +3111,12 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
 
     school_id, dept_id, _ = _get_question_scope(user)
     saved = []
+    # Storage path of each image ref already written in THIS run, so several
+    # questions sharing one figure ("Same image as previous") land on ONE stored
+    # file instead of a byte-identical copy each. Scoped to the run on purpose:
+    # refs are only unique within a session, so a ref from another upload may
+    # name a completely different picture.
+    uploaded_by_ref = {}
 
     for q in questions_data:
         q_text = q.get('question_text', '').strip()
@@ -3195,8 +3322,17 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         # single row via get_or_create and the (created or not mq.image) guard
         # then dropped every image but the first — silent data loss. So a question
         # that carries image data is deduped on its would-be image PATH (unique
-        # per image_ref) instead of the text: re-runs stay idempotent, but
-        # distinct figures sharing a stem are never merged.
+        # per image_ref) AND its text: re-runs stay idempotent, but distinct
+        # figures sharing a stem are never merged.
+        #
+        # The text half of that key is what makes "Same image as previous" safe.
+        # Several questions can legitimately share ONE figure ("use the diagram
+        # for questions 3-6"), and they now share the image_ref too, so the path
+        # alone would collapse them into a single row and silently drop all but
+        # the first. Their stems differ — that is why they are separate questions
+        # — so path+text keeps them apart. Two questions identical in BOTH text
+        # and figure are indistinguishable to a student and still collapse, which
+        # is the same call the text-only branch below makes.
         image_ref = q.get('image_ref')
         image_b64 = session.extracted_images.get(image_ref) if image_ref else None
         # Types that self-draw from structured fields never carry an image.
@@ -3252,7 +3388,8 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
         if dedup_by_image:
             target_image = f'questions/year{yl}/{topic_slug}/{safe_ref}'
             mq = MQ.objects.filter(
-                image=target_image, level=level, school_id=school_id,
+                image=target_image, question_text=q_text,
+                level=level, school_id=school_id,
             ).first()
             created = mq is None
             if created:
@@ -3268,6 +3405,12 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
                 school_id=school_id, defaults=defaults,
             )
 
+        if has_image and not created and mq.image:
+            # Matched an existing row that already holds this figure — later
+            # questions sharing the ref reuse its file rather than upload again.
+            uploaded_by_ref.setdefault(
+                f'year{yl}/{topic_slug}/{safe_ref}', mq.image.name)
+
         if not created and validation_type != 'auto':
             # Update rubric in case teacher edited it
             mq.validation_type = validation_type
@@ -3282,12 +3425,29 @@ def _save_homework_pdf_questions(questions_data, global_data, user, school, sess
             import logging as _img_log
             _img_logger = _img_log.getLogger('homework')
             try:
-                import base64
-                from django.core.files.base import ContentFile
-                img_bytes = base64.b64decode(image_b64)
-                img_filename = f'year{yl}/{topic_slug}/{safe_ref}'
-                mq.image.save(img_filename, ContentFile(img_bytes), save=True)
-                _img_logger.info('Saved question image: %s', mq.image.name)
+                # Keyed on the whole target path, not the bare ref: the same ref
+                # under a different level/topic belongs in a different folder,
+                # and Question.clean() enforces that layout for global questions.
+                ref_key = f'year{yl}/{topic_slug}/{safe_ref}'
+                shared_path = uploaded_by_ref.get(ref_key)
+                if shared_path:
+                    # An earlier question in this run already uploaded this exact
+                    # figure ("Same image as previous"). Point at the stored file
+                    # rather than writing byte-identical copy #2 to Spaces —
+                    # storage never overwrites (AWS_S3_FILE_OVERWRITE=False), so
+                    # a second save would cost a whole extra object.
+                    mq.image.name = shared_path
+                    mq.save(update_fields=['image'])
+                    _img_logger.info(
+                        'Reused stored question image: %s', mq.image.name)
+                else:
+                    import base64
+                    from django.core.files.base import ContentFile
+                    img_bytes = base64.b64decode(image_b64)
+                    mq.image.save(ref_key, ContentFile(img_bytes), save=True)
+                    # Read the name back: storage may have uniquified it.
+                    uploaded_by_ref[ref_key] = mq.image.name
+                    _img_logger.info('Saved question image: %s', mq.image.name)
             except Exception as _exc:
                 _img_logger.error(
                     'Failed to save image for question %s (ref=%s): %s',

@@ -10,7 +10,13 @@ from django.conf import settings
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.core.cache import cache
-from django.http import JsonResponse, HttpResponseRedirect
+from django.core.exceptions import (
+    RequestDataTooBig, TooManyFieldsSent, TooManyFilesSent,
+)
+from django.http import (
+    JsonResponse, HttpResponseBadRequest, HttpResponseRedirect,
+)
+from django.template import loader
 from django.middleware.csrf import REASON_NO_CSRF_COOKIE
 from django.shortcuts import render
 from django.urls import reverse, NoReverseMatch
@@ -81,11 +87,12 @@ def health_check(request):
     "the app actually works".
 
     Deep responses also carry a "warnings" object for conditions that are real
-    but must NOT fail the request. Email-queue backlog and unpaid access live
-    here deliberately: scripts/deploy.sh gates on a 200 from this endpoint, so
-    making either a 503 would block the very deploy that fixes it. Uptime
-    monitors should watch warnings.email_queue.status and
-    warnings.unpaid_access.status for "warning"/"critical".
+    but must NOT fail the request. Email-queue backlog, unpaid access and
+    scheduled publishing live here deliberately: scripts/deploy.sh gates on a
+    200 from this endpoint, so making any of them a 503 would block the very
+    deploy that fixes it. Uptime monitors should watch
+    warnings.email_queue.status, warnings.unpaid_access.status and
+    warnings.scheduled_publish.status for "warning"/"critical".
     """
     body = {
         "status":    "ok",
@@ -118,6 +125,7 @@ def health_check(request):
         "email_queue": _email_queue_warning(),
         "unpaid_access": _unpaid_access_warning(),
         "payment_delays": _payment_delay_warning(),
+        "scheduled_publish": _scheduled_publish_warning(),
     }
 
     if not all_ok:
@@ -199,6 +207,31 @@ def _payment_delay_warning():
         return {"status": "unknown", "detail": str(exc)}
 
 
+def _scheduled_publish_warning():
+    """Scheduled-homework publishing summary for the deep health body.
+
+    Non-fatal by design — see health_check's docstring. A set stuck past its
+    release time means the publish cron is dead, which is an ops failure, not a
+    liveness one, and this endpoint is reachable precisely when the app is fine
+    and the cron is not. Any failure to read the signal is reported rather than
+    swallowed, so a broken probe cannot look like a class that got its homework.
+    """
+    try:
+        from homework.publish_health import get_scheduled_publish_health
+
+        health = get_scheduled_publish_health()
+        return {
+            "status": health["status"],
+            "overdue": health["overdue"],
+            "from_schedule": health["from_schedule"],
+            "upcoming": health["upcoming"],
+            "oldest_overdue_minutes": health["oldest_overdue_min"],
+            "reasons": health["reasons"],
+        }
+    except Exception as exc:  # pragma: no cover - defensive
+        return {"status": "unknown", "detail": str(exc)}
+
+
 def _auth_urls():
     """(login_url, logout_url) — falls back to settings when a subdomain
     urlconf doesn't route the accounts app."""
@@ -206,6 +239,40 @@ def _auth_urls():
         return reverse('login'), reverse('logout')
     except NoReverseMatch:
         return settings.LOGIN_URL, None
+
+
+def bad_request(request, exception=None, template_name='400.html'):
+    """handler400 — say what went wrong instead of Django's bare 400 page.
+
+    Django turns a SuspiciousOperation raised while parsing a request into a
+    400 *before any view runs*, and its stock page is the four words
+    "Bad Request (400)". That is the whole message a teacher got when the PDF
+    review form outgrew DATA_UPLOAD_MAX_NUMBER_FIELDS on submit: no cause, no
+    way forward, and it took two production incidents to identify. The failure
+    itself is real and still a 400 (and still logged by django.security) — this
+    only makes it legible.
+
+    Rendered without the request context on purpose: DisallowedHost arrives here
+    too, and a context processor that reaches for the host would fail while
+    rendering the page that reports the failure.
+    """
+    logger.warning(
+        'Bad request on %s %s (%s)', request.method, request.path, exception,
+    )
+
+    too_large = isinstance(
+        exception, (RequestDataTooBig, TooManyFieldsSent, TooManyFilesSent),
+    )
+    # The review page posts to its own URL, so the address the browser is stuck
+    # on is also the way back to the questions — which are untouched, the POST
+    # never reached the view.
+    back_url = request.path if too_large and request.method == 'POST' else ''
+
+    return HttpResponseBadRequest(
+        loader.render_to_string(
+            template_name, {'too_large': too_large, 'back_url': back_url},
+        )
+    )
 
 
 def csrf_failure(request, reason='', template_name='403_csrf.html'):

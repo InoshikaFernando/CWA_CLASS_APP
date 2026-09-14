@@ -200,6 +200,11 @@ jobs:
               # and coding's plugin builds that window's context.
               - 'cwa_classroom/coding/**'
               - 'cwa_classroom/templates/coding/**'
+              # Homework's "Adjust image" and "Same image as previous" endpoints
+              # are thin wrappers around this shared helper, and the homework
+              # suite tests them through it — a change there is a homework
+              # change, and without this entry those tests go quiet, not red.
+              - 'cwa_classroom/worksheets/image_adjust.py'
             brainbuzz:
               - 'cwa_classroom/brainbuzz/**'
             ai_import:
@@ -211,6 +216,10 @@ jobs:
               # worksheets suite asserts against coding's URLs and templates.
               - 'cwa_classroom/coding/**'
               - 'cwa_classroom/templates/coding/**'
+              # Worksheet confirm saves its questions through ai_import's
+              # save_questions_from_session — the worksheet import is only as
+              # correct as that saver.
+              - 'cwa_classroom/ai_import/services.py'
             taskqueue:
               - 'cwa_classroom/taskqueue/**'
             feedback:
@@ -387,12 +396,22 @@ jobs:
             ui_navigation:
               - 'cwa_classroom/ui_tests/navigation/**'
               - 'cwa_classroom/accounts/**'
+              # The group drives the ops application-log page and the admin
+              # sidebar that reaches it. Without these an ops-only change would
+              # leave these tests green by never running them.
+              - 'cwa_classroom/ops/**'
+              - 'cwa_classroom/templates/admin_dashboard/ops/**'
+              - 'cwa_classroom/templates/partials/sidebar_admin.html'
               - 'cwa_classroom/rewards/**'
               - 'cwa_classroom/ai_import/**'
               - 'cwa_classroom/billing/**'
               - 'cwa_classroom/classroom/**'
               - 'cwa_classroom/coding/**'
               - 'cwa_classroom/help/**'
+              # My Progress lists homework and worksheets in Recent Activity,
+              # so the dashboard tests read both — a homework change can empty
+              # that card without touching a file under classroom/.
+              - 'cwa_classroom/homework/**'
               - 'cwa_classroom/maths/**'
               - 'cwa_classroom/music/**'
               - 'cwa_classroom/number_puzzles/**'
@@ -476,6 +495,16 @@ jobs:
               - 'cwa_classroom/templates/homework/**'
               - 'cwa_classroom/templates/ai_import/**'
               - 'cwa_classroom/templates/_partials/**'
+              # The worksheet upload screen is one of the three PDF screens
+              # these tests drive, so its template belongs here as well as to
+              # ui_worksheets.
+              - 'cwa_classroom/templates/worksheets/**'
+              # The AI page meter is a billing partial rendered on all three
+              # upload screens, and the PDF control on a school with no AI
+              # module leads to billing's "needs an AI module" page. Break
+              # either and these tests fail with nothing under an upload app
+              # touched.
+              - 'cwa_classroom/templates/billing/**'
               - 'cwa_classroom/ui_tests/xls_fixtures.py'
             ui_worksheets:
               - 'cwa_classroom/ui_tests/worksheets/**'
@@ -788,6 +817,26 @@ jobs:
       - name: Check templates print no developer notes
         working-directory: cwa_classroom
         run: pytest tests_templates.py -q --tb=short
+
+      # And again, for the same reason: the three review pages (homework,
+      # worksheet, AI import) are edited in step and shipped the same bug —
+      # a card posting every structured-spec panel, which crossed Django's
+      # request-parser field ceiling and returned a bare 400 on submit. Each
+      # page's rendered budget suite is path-filtered onto its own app, so a
+      # fourth page, or a spec field added to a page that had none, would go
+      # unmeasured; this runs ungated on every push and PR.
+      - name: Check the review forms post only what they edit
+        working-directory: cwa_classroom
+        run: pytest tests_review_forms.py -q --tb=short
+
+      # And again: scripts/ belongs to no app. Both of its silent failure modes
+      # need a test — a credential written into a committed file, and a
+      # prod->test restore that leaves the test site holding LIVE Stripe price
+      # ids, which reads as "contact support" to a tester and as nothing at all
+      # to CI.
+      - name: Check the ops scripts
+        working-directory: cwa_classroom
+        run: pytest tests_ops_scripts.py -q --tb=short
 
   # A release PR (test -> main) merges `test` into `main` unchanged, so its tree
   # is normally byte-identical to the one the full matrix just ran on `test`.

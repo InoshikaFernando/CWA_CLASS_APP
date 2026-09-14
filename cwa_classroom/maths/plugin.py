@@ -162,7 +162,8 @@ class MathsPlugin(SubjectPlugin):
         # Same scoping as pick_homework_items — visible_to_classroom plus the
         # class's levels — so the count a teacher reads is the pool the
         # generator will actually draw from.
-        qs = Question.objects.visible_to_classroom(classroom).filter(topic_id__in=ids)
+        qs = (Question.objects.visible_to_classroom(classroom).live()
+              .filter(topic_id__in=ids))
         classroom_levels = classroom.levels.all()
         if classroom_levels.exists():
             qs = qs.filter(level__in=classroom_levels)
@@ -188,7 +189,7 @@ class MathsPlugin(SubjectPlugin):
         classroom_levels = classroom.levels.all()
         # Scope to what this CLASS may draw on. Unscoped, homework generated for
         # one school pulled in every other school's private questions.
-        qs = (Question.objects.visible_to_classroom(classroom)
+        qs = (Question.objects.visible_to_classroom(classroom).live()
               .filter(topic__in=topics).select_related('topic'))
         if classroom_levels.exists():
             qs = qs.filter(level__in=classroom_levels)
@@ -286,24 +287,18 @@ class MathsPlugin(SubjectPlugin):
             except ValueError:
                 is_correct = False
         elif q.question_type == 'long_division' and q.dividend is not None and q.divisor:
-            # Accept "12", "12 r 0", "12r0" equivalents; canonicalise both sides.
+            # Accept "12", "12 r 0", "12r0" equivalents; canonicalised by the
+            # shared grader, so homework, the quiz and worksheets agree.
+            from maths.column_grading import grade_long_division
             text_answer = post_data.get(f'answer_{q.id}', '').strip()
-            quot, rem = divmod(q.dividend, q.divisor)
-            import re as _re
-            m = _re.match(r'^\s*(-?\d+)\s*(?:r\s*(-?\d+))?\s*$', text_answer.lower())
-            if m:
-                got_q = int(m.group(1))
-                got_r = int(m.group(2)) if m.group(2) is not None else 0
-                is_correct = (got_q == quot and got_r == rem)
+            is_correct = grade_long_division(q, text_answer)
         elif q.question_type == Question.COLUMN_OPERATION and q.column_result is not None:
             # Answer is computed from operands/operator — compare the student's
             # number to the computed result (tolerant of spaces / leading zeros)
             # so manually-created questions grade without a stored answer row.
+            from maths.column_grading import grade_column_operation
             text_answer = post_data.get(f'answer_{q.id}', '').strip()
-            import re as _re
-            m = _re.match(r'^\s*(-?\d+)\s*$', text_answer.replace(' ', ''))
-            if m:
-                is_correct = (int(m.group(1)) == q.column_result)
+            is_correct = grade_column_operation(q, text_answer)
         elif q.question_type == Question.MEASURE and q.numeric_answer is not None:
             # Tolerance-graded numeric answer (e.g. "measure angle a").
             from maths.geometry_grading import grade_measure
@@ -409,7 +404,7 @@ class MathsPlugin(SubjectPlugin):
             .select_related('subject', 'parent', 'parent__parent')
             .order_by('subject__name', 'parent__name', 'name')
         )
-        visible = Question.objects.visible_to_classroom(classroom)
+        visible = Question.objects.visible_to_classroom(classroom).live()
         if classroom_levels.exists():
             question_filter = visible.filter(
                 topic=OuterRef('pk'), level__in=classroom_levels,

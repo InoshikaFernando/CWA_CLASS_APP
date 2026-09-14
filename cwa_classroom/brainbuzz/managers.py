@@ -118,6 +118,26 @@ class VisibleQuestionsManager(models.Manager):
 class MathsQuestionsQuerySet(VisibleQuestionsQuerySet):
     """QuerySet for maths questions with specialized filtering."""
 
+    def live(self):
+        """Questions still in service — everything not retired (CPP-410).
+
+        Every path that CHOOSES questions to put in front of a student calls
+        this: homework generation, worksheet building, quiz topic selection.
+
+        It is deliberately NOT applied in ``get_queryset``. ``objects`` is the
+        only manager on Question, so filtering there would also hide retired
+        questions from the Django admin — which is the one place they have to
+        stay visible, because that is where they get repaired and brought
+        back. ``tests_retired_questions.py`` enumerates the selection paths
+        and fails the build if a new one forgets to call this, which is the
+        guard that filtering-by-default would otherwise have given us.
+        """
+        return self.filter(retired_at__isnull=True)
+
+    def retired(self):
+        """Only the withdrawn questions — for review and reporting."""
+        return self.filter(retired_at__isnull=False)
+
     def by_topic(self, topic_name):
         """Filter by topic name (case-insensitive)."""
         return self.filter(topic__name__icontains=topic_name)
@@ -156,8 +176,20 @@ class MathsQuestionsManager(VisibleQuestionsManager):
     """Manager for maths questions with visibility filtering."""
 
     def get_queryset(self):
-        """Return base queryset (without visibility filtering)."""
+        """Return base queryset (without visibility filtering).
+
+        Retired questions are INCLUDED here on purpose — see
+        :meth:`MathsQuestionsQuerySet.live`.
+        """
         return MathsQuestionsQuerySet(self.model, using=self._db)
+
+    def live(self):
+        """Questions still in service (CPP-410)."""
+        return self.get_queryset().live()
+
+    def retired(self):
+        """Only the withdrawn questions."""
+        return self.get_queryset().retired()
 
     def visible_to(self, user):
         """Get questions visible to user."""

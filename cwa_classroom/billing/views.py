@@ -88,7 +88,7 @@ def _create_account_from_pending(pending, stripe_subscription_id=''):
         code = None
         if data.get('discount_code'):
             code = DiscountCode.objects.filter(
-                code=data['discount_code']).first()
+                code__iexact=data['discount_code']).first()
         sub = Subscription.objects.create(
             user=user,
             package=package,
@@ -147,6 +147,11 @@ class CheckoutView(LoginRequiredMixin, View):
                 'Checkout session creation failed for user %s, package %s: %s',
                 request.user.id, package.id, e,
             )
+            from .stripe_health import record_checkout_failure
+            record_checkout_failure(
+                e, user=request.user, package=package, request=request,
+                flow='checkout_view',
+            )
             messages.error(
                 request,
                 'Could not start checkout. Please try again, or contact support if it persists.',
@@ -201,10 +206,10 @@ class ApplyPromoCodeView(LoginRequiredMixin, View):
         discount = None
         promo = None
         try:
-            discount = DiscountCode.objects.get(code=code_str)
+            discount = DiscountCode.objects.get(code__iexact=code_str)
         except DiscountCode.DoesNotExist:
             try:
-                promo = PromoCode.objects.get(code=code_str)
+                promo = PromoCode.objects.get(code__iexact=code_str)
             except PromoCode.DoesNotExist:
                 return JsonResponse({'error': 'Invalid promotion code.'}, status=400)
 
@@ -600,6 +605,38 @@ class InstitutePlanSelectView(LoginRequiredMixin, View):
         current_classes = ClassRoom.objects.filter(school=school, is_active=True).count()
         current_students = SchoolStudent.objects.filter(school=school, is_active=True).count()
 
+        # The add-on list on this page was three module names typed by hand
+        # under a heading that read "($10/mo each)". Both had gone stale: there
+        # are twelve sellable modules now, they range from $10 to $149, and the
+        # three that were listed are billed at $9 in Stripe. A hand-kept list
+        # on the page a prospect reads before paying is the last place to let
+        # drift happen, so it comes from the catalogue.
+        #
+        # One row per tier family rather than three, since a family is a
+        # pick-one ladder and listing every rung reads as nine products.
+        from billing import registry
+        from billing.models import ModuleProduct as _MP
+
+        addons, seen_families = [], set()
+        for product in _MP.objects.filter(is_active=True).order_by('price'):
+            module = registry.REGISTRY.get(product.module)
+            if module is None:
+                continue
+            if module.family:
+                if module.family in seen_families:
+                    continue
+                seen_families.add(module.family)
+                cheapest = registry.ordered_members_of(module.family)[0]
+                addons.append({
+                    'name': module.name.split('—')[0].strip(),
+                    'price': _MP.objects.filter(module=cheapest.slug).values_list(
+                        'price', flat=True).first(),
+                    'from': True,
+                })
+            else:
+                addons.append({'name': module.name, 'price': product.price,
+                               'from': False})
+
         active_sub = sub if sub and sub.is_active_or_trialing else None
         return render(request, 'billing/institute_plans.html', {
             'plans': plans,
@@ -608,6 +645,7 @@ class InstitutePlanSelectView(LoginRequiredMixin, View):
             'current_plan': active_sub.plan if active_sub else None,
             'current_classes': current_classes,
             'current_students': current_students,
+            'addons': addons,
         })
 
 
@@ -659,6 +697,33 @@ class InstitutePlanUpgradeView(LoginRequiredMixin, View):
         })
 
 
+#: Families with a hand-written section on the institute dashboard, because
+#: each has copy the generic renderer has no business knowing about: the AI
+#: import introductory discount, and the AI grading answers-used meter.
+#:
+#: Everything NOT listed here is rendered generically. Adding a family to this
+#: set without also adding its template block would make it invisible — which
+#: is the exact failure question_automation hit — so tests_tier_ui.py checks
+#: that every name here really does have a block.
+BESPOKE_TIER_FAMILIES = frozenset({'ai_import', 'ai_grading'})
+
+
+def _allowance_label(product):
+    """What one tier of a ladder includes, in words, or '' if it is not metered.
+
+    Reads whichever allowance column the family actually uses. A tier whose
+    column is NULL is the unlimited top of its ladder — said explicitly,
+    because a blank there reads as "unknown" rather than "no limit".
+    """
+    if product.schedules_limit is not None:
+        return f'{product.schedules_limit} schedules at once'
+    if product.pages_per_month:
+        return f'{product.pages_per_month} pages/mo'
+    if product.questions_per_month:
+        return f'{product.questions_per_month} answers/mo'
+    return 'unlimited'
+
+
 class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
     """Dashboard showing current subscription status, usage, and limits."""
 
@@ -688,17 +753,38 @@ class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
         # once and be billed for both while only one took effect.
         from billing.page_quota import AI_IMPORT_MODULE_PREFIX
         from billing.quota_alerts import GRADING_TIER_ORDER
-        AI_IMPORT_SLUGS = {'ai_import_starter', 'ai_import_professional', 'ai_import_enterprise'}
-        AI_GRADING_SLUGS = set(GRADING_TIER_ORDER)
+        from billing import registry
+        AI_IMPORT_SLUGS = registry.members_of('ai_import')
+        # Any module in a family is a ladder, so ask the registry instead of
+        # naming the two we happened to know about. question_automation became
+        # a third ladder, and a hard-coded list would have shown its tiers here
+        # as three independent switches — precisely the bug above.
+        #
+        # GRADING_TIER_ORDER stays for the tier CARDS further down: those need
+        # the ladder in weakest-to-strongest order, and a family is a set.
+        # Price comes from the product row, never a literal. The heading here
+        # read "Modules ($10/mo each)" and both confirm dialogs said "$10/mo",
+        # which was true only while every standalone module happened to cost
+        # the same — a claim that silently becomes a lie the first time one is
+        # repriced, on the screen where somebody agrees to pay it.
+        from billing.models import ModuleProduct as _MP
+        _products = {p.module: p for p in _MP.objects.filter(is_active=True)}
         standard_modules = [
-            (k, v) for k, v in ModuleSubscription.MODULE_CHOICES
-            if k not in AI_IMPORT_SLUGS and k not in AI_GRADING_SLUGS
+            {
+                'key': k,
+                'name': v,
+                'price': _products[k].price if k in _products else None,
+            }
+            for k, v in ModuleSubscription.MODULE_CHOICES
+            if not registry.siblings_of(k)
         ]
-        ai_import_tiers = [
-            {'slug': 'ai_import_starter', 'name': 'Starter', 'pages': 300, 'price': 15, 'full_price': 30, 'discount_months': 6},
-            {'slug': 'ai_import_professional', 'name': 'Professional', 'pages': 600, 'price': 30, 'full_price': 60, 'discount_months': 6},
-            {'slug': 'ai_import_enterprise', 'name': 'Enterprise', 'pages': 1000, 'price': 50, 'full_price': 99, 'discount_months': 6},
-        ]
+        # Shared with the public plans page — see billing/ai_tiers.py. This
+        # list used to be a second copy whose 'price' key meant the discounted
+        # price while the plans page's meant the full one.
+        from billing.ai_tiers import (
+            ai_import_tiers as _ai_import_tiers, discount_context,
+        )
+        ai_import_tiers = _ai_import_tiers()
         active_ai_import_tier = next(
             (s for s in AI_IMPORT_SLUGS if s in active_modules), None
         )
@@ -728,6 +814,48 @@ class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
             (s for s in GRADING_TIER_ORDER if s in active_modules), None
         )
 
+        # Every OTHER ladder, rendered generically.
+        #
+        # ai_import and ai_grading have hand-written blocks above because each
+        # carries family-specific copy — the introductory discount, and the
+        # answers-used meter. Nothing else does, and question_automation proved
+        # what happens when a new family has neither a block of its own nor a
+        # generic path: `standard_modules` drops it for having siblings, the two
+        # hand-written sections do not know about it, and the module becomes
+        # gated and unbuyable. A school hit the schedule pages, got the upsell
+        # page, and found nothing on it to buy.
+        #
+        # tests_tier_ui.py fails the build if a family reaches neither path, so
+        # a fourth ladder cannot go missing the same way.
+        tier_families = []
+        for family, modules in registry.families():
+            if family in BESPOKE_TIER_FAMILIES:
+                continue
+            tiers = []
+            for module in modules:
+                product = _products.get(module.slug)
+                if not product:
+                    # No product row means no price and no Stripe id — showing
+                    # it would offer something checkout cannot complete.
+                    continue
+                tiers.append({
+                    'slug': module.slug,
+                    # 'Question Automation — Starter' → 'Starter'
+                    'name': module.name.split('—')[-1].strip(),
+                    'price': product.price,
+                    'allowance': _allowance_label(product),
+                })
+            if not tiers:
+                continue
+            tier_families.append({
+                'family': family,
+                'label': modules[0].name.split('—')[0].strip(),
+                'tiers': tiers,
+                'active_slug': next(
+                    (m.slug for m in modules if m.slug in active_modules), None
+                ),
+            })
+
         # Live meters so the institute sees what it is actually consuming next
         # to the plan it is choosing between.
         from billing.page_quota import quota_status
@@ -751,6 +879,7 @@ class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
             'active_ai_import_tier': active_ai_import_tier,
             'ai_grading_tiers': ai_grading_tiers,
             'active_ai_grading_tier': active_ai_grading_tier,
+            'tier_families': tier_families,
             'grading_used': grading_used,
             'grading_limit': grading_limit,
             'grading_percent': (
@@ -758,6 +887,60 @@ class InstituteSubscriptionDashboardView(LoginRequiredMixin, View):
                 if grading_limit else 0
             ),
             'page_quota': quota_status(school),
+            # The introductory offer's wording, from the same place the plans
+            # page takes it.
+            **discount_context(),
+        })
+
+
+class AIPagesRequiredView(LoginRequiredMixin, View):
+    """"Reading a PDF with AI needs an AI module" — what happened, and what next.
+
+    The PDF control on all three upload screens points here when the school has
+    no AI page allowance, as does the link in the refusal message when an upload
+    is turned away.
+
+    It exists because the pricing page is the wrong destination on its own.
+    Sending a teacher straight there answered "how do I buy one?" without ever
+    answering "what just happened?" — the explanation lived on the screen they
+    had just left, and arriving at a price list with no context is exactly the
+    confusion this page removes.
+
+    Not ModuleRequiredView either: that one is generic, names one module's price
+    with no allowance to go with it, and says nothing about what still works.
+
+    ``from`` is a label for the screen they came from, not a URL. It is echoed
+    into the page, so it is looked up in a known map rather than trusted.
+    """
+
+    SCREEN_LABELS = {
+        'homework': 'Upload PDF Homework',
+        'worksheet': 'Upload Worksheet',
+        'ai_import': 'AI Question Import',
+    }
+    BACK_URLS = {
+        'homework': '/homework/pdf/upload/',
+        'worksheet': '/worksheets/upload/',
+        'ai_import': '/ai-import/upload/',
+    }
+
+    def get(self, request):
+        from billing.entitlements import get_school_for_user
+        from billing.page_quota import quota_status
+
+        school = get_school_for_user(request.user)
+        status = quota_status(school)
+        screen = request.GET.get('from', '')
+
+        return render(request, 'billing/ai_pages_required.html', {
+            # A school that CAN spend pages should never be told it cannot, so
+            # the page reads its own answer from quota_status rather than
+            # assuming the link that brought it here was still true.
+            'has_allowance': not status.get('no_allowance'),
+            'no_school': status.get('reason') == 'no_school',
+            'school_name': getattr(school, 'name', ''),
+            'from_label': self.SCREEN_LABELS.get(screen, ''),
+            'back_url': self.BACK_URLS.get(screen, ''),
         })
 
 
@@ -769,9 +952,15 @@ class ModuleRequiredView(LoginRequiredMixin, View):
         module_name = dict(ModuleSubscription.MODULE_CHOICES).get(
             module_slug, module_slug.replace('_', ' ').title(),
         )
+        # The real price, not a literal. This page said "$10/month" for every
+        # module, on the screen a blocked school reads — while the modules it
+        # gates run from $10 to $149.
+        from billing.models import ModuleProduct as _MP
+        product = _MP.objects.filter(module=module_slug, is_active=True).first()
         return render(request, 'billing/module_required.html', {
             'module_slug': module_slug,
             'module_name': module_name,
+            'module_price': product.price if product else None,
         })
 
 
@@ -822,19 +1011,35 @@ class InstituteCheckoutView(LoginRequiredMixin, View):
             return redirect('institute_plan_select')
 
 
-class InstituteCheckoutSuccessView(LoginRequiredMixin, View):
+class InstituteCheckoutSuccessView(View):
     """Success page after Stripe Checkout for institute subscription.
 
-    Stripe redirects here with ?session_id=... after payment. We verify
-    the session with Stripe and activate the subscription immediately,
-    so the user doesn't depend on the webhook arriving first.
+    Stripe redirects here with ?session_id=... after payment. The session is
+    verified with Stripe and the subscription activated straight away, so the
+    outcome never depends on the webhook arriving first.
+
+    Deliberately NOT login-required. A new institute has no account at this
+    point — that is the whole change: nothing is created until Stripe confirms
+    the card, so this page is where a brand-new signup lands, still anonymous,
+    and it builds the account and signs them in. An existing school upgrading a
+    plan arrives here logged in and takes the branch below.
     """
 
     def get(self, request):
+        session_id = request.GET.get('session_id', '')
+
+        # A signup that has not been built yet: no user, no school, nothing.
+        if session_id:
+            created = self._activate_pending_signup(request, session_id)
+            if created:
+                return created
+
+        if not request.user.is_authenticated:
+            return redirect('login')
+
         school = get_school_for_user(request.user)
         sub = get_school_subscription(school) if school else None
 
-        session_id = request.GET.get('session_id', '')
         if session_id and sub and sub.status != SchoolSubscription.STATUS_ACTIVE:
             self._activate_from_session(session_id, sub)
             sub.refresh_from_db()
@@ -843,6 +1048,84 @@ class InstituteCheckoutSuccessView(LoginRequiredMixin, View):
             'school': school,
             'subscription': sub,
         })
+
+    def _activate_pending_signup(self, request, session_id):
+        """Build and sign in a brand-new institute, or return None.
+
+        The webhook usually wins this race; when it does, ``completed`` is
+        already True and this finds nothing to do — but the person still needs
+        signing in, so the account is looked up and used either way. Running
+        both paths must never produce two schools, which is why activation is
+        idempotent rather than guarded by a flag checked here.
+        """
+        from django.contrib.auth import login as auth_login
+
+        from accounts.institute_registration import activate_pending_institute
+        from accounts.models import PendingInstituteRegistration
+
+        pending = PendingInstituteRegistration.objects.filter(
+            stripe_session_id=session_id).first()
+        if not pending:
+            return None
+
+        trial_end, stripe_sub_id, stripe_customer_id = self._session_facts(session_id)
+        user, school, sub = activate_pending_institute(
+            pending,
+            stripe_subscription_id=stripe_sub_id,
+            stripe_customer_id=stripe_customer_id,
+            trial_end=trial_end,
+        )
+        if not user:
+            messages.error(
+                request,
+                'Your payment details were saved but we could not finish '
+                'setting up your school. Please contact support — you have not '
+                'been charged.',
+            )
+            return redirect('register_teacher_center')
+
+        if not request.user.is_authenticated:
+            auth_login(request, user,
+                       backend='accounts.backends.EmailOrUsernameBackend')
+
+        log_event(
+            user=user, school=school, category='auth',
+            action='hoi_registered',
+            detail={'center_name': school.name if school else None,
+                    'via': 'stripe_checkout', 'session_id': session_id},
+            request=request,
+        )
+        try:
+            from notifications.services import send_welcome_notification
+            send_welcome_notification(user, school=school)
+        except Exception:
+            logger.exception('Failed to send welcome email for HoI user %s', user.pk)
+
+        return render(request, 'billing/institute_checkout_success.html', {
+            'school': school,
+            'subscription': sub,
+        })
+
+    @staticmethod
+    def _session_facts(session_id):
+        """``(trial_end, subscription_id, customer_id)`` for a checkout session.
+
+        Read from Stripe rather than assumed: Stripe owns the date it bills on,
+        and a locally computed "now + 14 days" would drift from it.
+        """
+        from billing.webhook_handlers import _stripe_trial_end
+        try:
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            session = stripe.checkout.Session.retrieve(session_id)
+            sub_id = session.get('subscription') if isinstance(session, dict) \
+                else getattr(session, 'subscription', '')
+            cus_id = session.get('customer') if isinstance(session, dict) \
+                else getattr(session, 'customer', '')
+            return _stripe_trial_end(sub_id or ''), sub_id or '', cus_id or ''
+        except Exception:  # noqa: BLE001 — never lose an account to a lookup
+            logger.warning('Could not read checkout session %s', session_id,
+                           exc_info=True)
+            return None, '', ''
 
     @staticmethod
     def _activate_from_session(session_id, sub):
@@ -1068,21 +1351,18 @@ class ModuleToggleView(LoginRequiredMixin, View):
         # tier it replaces, or the school is billed for two and only one takes
         # effect. Grading was missing from this and was sold as three separate
         # $10 modules that could all be switched on at once.
-        from billing.quota_alerts import GRADING_TIER_ORDER
-        AI_IMPORT_SLUGS = {'ai_import_starter', 'ai_import_professional', 'ai_import_enterprise'}
-        AI_GRADING_SLUGS = set(GRADING_TIER_ORDER)
-        if module_slug in AI_IMPORT_SLUGS:
-            exclusive_family = AI_IMPORT_SLUGS
-        elif module_slug in AI_GRADING_SLUGS:
-            exclusive_family = AI_GRADING_SLUGS
-        else:
-            exclusive_family = set()
+        # Read the family from the registry rather than listing it here. This
+        # was two hard-coded sets, and question_automation became a third
+        # ladder without either of them knowing — a new family that nobody
+        # remembered to add would silently sell two tiers at once.
+        from billing import registry
+        AI_IMPORT_SLUGS = registry.members_of('ai_import')
 
         try:
             if action == 'add':
                 # Deactivate the other tiers in this family (mutual exclusivity)
-                if exclusive_family:
-                    other_ai_slugs = exclusive_family - {module_slug}
+                other_ai_slugs = registry.siblings_of(module_slug)
+                if other_ai_slugs:
                     for other_slug in other_ai_slugs:
                         existing = ModuleSubscription.objects.filter(
                             school_subscription=sub, module=other_slug, is_active=True,
@@ -1102,12 +1382,62 @@ class ModuleToggleView(LoginRequiredMixin, View):
                     from billing.stripe_service import add_module_to_subscription
                     add_module_to_subscription(sub, module_slug, stripe_price_id)
                 else:
-                    # No Stripe subscription — activate locally (trial/test)
+                    # No Stripe subscription — activate locally (trial/test).
+                    #
+                    # But separate the two reasons for landing here, because
+                    # only one of them is legitimate. A school with no Stripe
+                    # subscription is on trial or comped: nothing to bill, so a
+                    # local row is right. A school that HAS a Stripe
+                    # subscription and reaches this branch is here because the
+                    # module has no stripe_price_id — and it silently receives
+                    # a paid module for free, forever, with no line on any
+                    # invoice and nothing anywhere reporting it.
+                    #
+                    # That is how AI Grading Professional was given away: the
+                    # module was active on a paying school for months, at $49
+                    # list, and simply never appeared on a Stripe invoice.
+                    # Nobody found out until the invoice was read by hand.
+                    if sub.stripe_subscription_id and not stripe_price_id:
+                        logger.error(
+                            'Module %s activated for school %s with no Stripe '
+                            'price — it will NOT be billed. Run '
+                            '"manage.py sync_stripe_prices --create-missing".',
+                            module_slug, sub.school_id,
+                        )
+                        log_event(
+                            user=request.user, school=sub.school,
+                            category='entitlement',
+                            action='module_activated_unbilled',
+                            result='success',
+                            detail={'module': module_slug,
+                                    'reason': 'no stripe_price_id'},
+                            request=request,
+                        )
+                        messages.warning(
+                            request,
+                            f'{module_name} was switched on, but it has no '
+                            f'price set up in Stripe yet, so it will not be '
+                            f'billed. Tell support before relying on it.',
+                        )
                     ModuleSubscription.objects.update_or_create(
                         school_subscription=sub,
                         module=module_slug,
                         defaults={'is_active': True, 'deactivated_at': None},
                     )
+                # The plans page quotes the first-year price, so the discount
+                # is attached here — automatically, with no code for anyone to
+                # type. Stripe drops it after twelve months on its own.
+                #
+                # A failure is SHOWN, never swallowed: the school was quoted
+                # half price, so silently landing on the full price is an
+                # overcharge nobody would notice until the invoice.
+                from billing import ai_tiers
+                if module_slug in AI_IMPORT_SLUGS and ai_tiers.INTRO_DISCOUNT_ENABLED:
+                    from billing.stripe_service import apply_ai_intro_discount
+                    applied, discount_error = apply_ai_intro_discount(sub)
+                    if not applied and discount_error:
+                        messages.warning(request, discount_error)
+
                 log_event(
                     user=request.user, school=school, category='billing',
                     action='module_activated',

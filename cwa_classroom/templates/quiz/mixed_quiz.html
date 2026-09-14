@@ -15,6 +15,9 @@
   </div>
 {% endblock %}
 
+{% comment %}The progress-art panel is placed by base_quiz.html, which now gives
+any quiz carrying one a sticky side column — this template used to build its own
+and no longer needs to.{% endcomment %}
 {% block content %}
 {% include "billing/_ai_grading_promo.html" %}
 <form method="post" id="mixed-form">
@@ -23,7 +26,10 @@
 
   <div class="space-y-4 mb-28">
     {% for q in questions %}
-    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+    {% comment %}`data-pa-group` makes this card one unit of progress for the
+    progress-art panel below (static/js/progress_art.js).{% endcomment %}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5"
+         data-pa-group data-pa-answered="0">
       <div class="flex items-start gap-3 mb-4">
         <span class="flex-shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-lg bg-primary-light text-primary text-xs font-bold">
           {{ forloop.counter }}
@@ -38,7 +44,7 @@
           {% comment %}A fill-in-the-blank sentence prints itself below, with an input in
           each gap — printing it here too would show the question twice.{% endcomment %}
           {% if not q.blank_data %}
-          <p class="font-semibold text-gray-800">{{ q.question_text }}</p>
+          <p class="font-semibold text-gray-800 whitespace-pre-line">{{ q.question_text }}</p>
           {% endif %}
         </div>
       </div>

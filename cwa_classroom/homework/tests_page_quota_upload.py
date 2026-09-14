@@ -146,12 +146,84 @@ class HomeworkUploadPageQuotaTests(TestCase):
         self.assertEqual(HomeworkUploadSession.objects.count(), 0)
         self.assertEqual(self._used(), 2)
 
-    def test_a_school_with_no_ai_tier_is_not_blocked(self):
-        """Homework upload predates the allowance; a plain plan keeps working."""
+    def _drop_the_ai_module(self):
         ModuleSubscription.objects.filter(
             school_subscription__school=self.school,
             module='ai_import_professional',
         ).update(is_active=False)
-        self._set_used(9_999)
+
+    def test_a_school_with_no_ai_module_cannot_upload_a_pdf(self):
+        """The AI module is the licence to spend AI pages, wherever you start.
+
+        This test used to assert the opposite — "homework upload predates the
+        allowance; a plain plan keeps working" — and that was the hole: the
+        schools that had bought a tier were capped, and the ones that hadn't
+        read PDFs with AI for free through this screen.
+        """
+        self._drop_the_ai_module()
         self._upload(5)
-        self.assertEqual(HomeworkUploadSession.objects.count(), 1)
+        self.assertEqual(HomeworkUploadSession.objects.count(), 0)
+
+    def test_the_refusal_names_the_module_and_links_the_plans(self):
+        from billing.page_quota import ai_plans_url
+
+        self._drop_the_ai_module()
+        pdf = SimpleUploadedFile(
+            'paper.pdf', _pdf_bytes(3), content_type='application/pdf')
+        response = self.client.post(
+            reverse('homework:pdf_upload'),
+            {'pdf_file': pdf, 'page_selection': ''}, follow=True,
+        )
+        body = response.content.decode()
+        self.assertIn('needs an AI module', body)
+        self.assertIn(ai_plans_url(), body)
+
+    def test_authored_json_still_uploads_without_an_ai_module(self):
+        """Only the AI path is gated. A hand-authored file costs no AI at all.
+
+        The JSON branch returns before the budget check is reached, which is
+        correct and entirely undocumented — exactly the ordering a later tidy-up
+        moves without noticing. Pinned here.
+        """
+        import json as _json
+
+        from classroom.models import Level, Subject
+
+        # What the importer resolves a question against; same shape as
+        # classroom/tests/test_assignment_json_upload.py.
+        Subject.objects.get_or_create(
+            slug='mathematics', school=None,
+            defaults={'name': 'Mathematics', 'is_active': True})
+        Level.objects.get_or_create(
+            level_number=4, defaults={'display_name': 'Year 4'})
+
+        self._drop_the_ai_module()
+        payload = _json.dumps({
+            'topic': 'Fractions',
+            'year_level': 4,
+            'questions': [{
+                'question_text': 'What is 1/2 + 1/4?',
+                'question_type': 'multiple_choice',
+                'difficulty': 1,
+                'points': 1,
+                'answers': [
+                    {'text': '3/4', 'is_correct': True, 'order': 1},
+                    {'text': '1/2', 'is_correct': False, 'order': 2},
+                ],
+            }],
+        }).encode()
+        authored = SimpleUploadedFile(
+            'questions.json', payload, content_type='application/json')
+
+        response = self.client.post(
+            reverse('homework:pdf_upload'), {'json_file': authored}, follow=True,
+        )
+
+        # Asserted on the outcome, not on the absence of a phrase: the upload
+        # page legitimately carries the "needs an AI module" panel for this
+        # school, so a string check here would fail on a working upload.
+        session = HomeworkUploadSession.objects.filter(user=self.user).first()
+        self.assertIsNotNone(session, 'the authored upload was refused')
+        self.assertRedirects(
+            response, reverse('homework:json_confirm', args=[session.pk]))
+        self.assertEqual(self._used(), 0, 'an authored upload must cost no AI pages')

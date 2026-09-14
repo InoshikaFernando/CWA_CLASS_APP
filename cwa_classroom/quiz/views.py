@@ -11,7 +11,9 @@ from django.conf import settings
 from django.db.models import Q
 
 from audit.services import log_event
-from classroom.models import Level as ClassroomLevel, SchoolStudent, Topic as ClassroomTopic
+from classroom import progress_art
+from classroom.models import Level as ClassroomLevel, SchoolStudent
+from classroom.topic_redirect import resolve_topic
 from maths.models import calculate_points
 # Which times tables each year may practise. This module used to carry its own
 # divergent copy of that mapping, and this was the copy the page actually read.
@@ -714,7 +716,13 @@ class TopicQuizView(LoginRequiredMixin, View):
     def get(self, request, subject, level_number, topic_id):
         import random as rnd
         level = get_object_or_404(ClassroomLevel, level_number=level_number)
-        topic = get_object_or_404(ClassroomTopic, id=topic_id)
+        # Not get_object_or_404: a topic id that a merge retired is still a
+        # link students hold, and it belongs on the survivor rather than on a
+        # 404 page. See classroom.topic_redirect.
+        topic, moved = resolve_topic(
+            topic_id, 'topic_quiz', subject=subject, level_number=level_number)
+        if moved:
+            return moved
 
         from maths.models import Question
         # Global bank only. A plain .filter() here reads every school's private
@@ -723,7 +731,7 @@ class TopicQuizView(LoginRequiredMixin, View):
         # filter then drops what this student's quiz cannot mark; both narrow
         # the same pool, so the hidden-count log counts against the global bank
         # rather than against questions the student was never entitled to.
-        in_topic = Question.objects.global_only().filter(topic=topic, level=level)
+        in_topic = Question.objects.global_only().live().filter(topic=topic, level=level)
         questions_qs = list(
             gradable_for(request.user, in_topic).prefetch_related('answers'))
         in_topic_total = in_topic.count()
@@ -778,13 +786,26 @@ class TopicQuizView(LoginRequiredMixin, View):
             'question_number': 1,
             'total_questions': len(questions),
             'subject': subject,
+            # The picture that draws itself as the quiz is answered. Seeded on
+            # the session id, so a refresh of THIS quiz redraws the same one —
+            # and a new quiz gets a new one. A quiz is a single sitting, so
+            # unlike homework there is nothing to persist.
+            'progress_art': progress_art.context(
+                progress_art.pick(len(questions), f'topic-quiz-{session_id}',
+                                  year_level=level.level_number),
+                done=0, total=len(questions),
+            ),
         })
 
 
 class TopicResultsView(LoginRequiredMixin, View):
     def get(self, request, subject, level_number, topic_id):
         level = get_object_or_404(ClassroomLevel, level_number=level_number)
-        topic = get_object_or_404(ClassroomTopic, id=topic_id)
+        topic, moved = resolve_topic(
+            topic_id, 'topic_results', subject=subject,
+            level_number=level_number)
+        if moved:
+            return moved
 
         result_id = request.session.get(f'tq_result_{topic_id}_{level_number}')
         from maths.models import StudentFinalAnswer
@@ -818,7 +839,7 @@ class MixedQuizView(LoginRequiredMixin, View):
         pool_total = pool_gradable = 0
         for topic in topics:
             # Global bank only (see TopicQuizView), then drop the ungradable.
-            in_topic = Question.objects.global_only().filter(topic=topic, level=level)
+            in_topic = Question.objects.global_only().live().filter(topic=topic, level=level)
             gradable = gradable_for(request.user, in_topic)
             pool_total += in_topic.count()
             pool_gradable += gradable.count()
@@ -852,6 +873,17 @@ class MixedQuizView(LoginRequiredMixin, View):
             'session_id': session_id,
             'total': len(all_questions),
             'subject': subject,
+            # Every question is on this one page, so the panel counts the
+            # answered `data-pa-group` blocks inside the form as the student
+            # works (see static/js/progress_art.js).
+            'progress_art': dict(
+                progress_art.context(
+                    progress_art.pick(len(all_questions), f'mixed-quiz-{session_id}',
+                                      year_level=level.level_number),
+                    done=0, total=len(all_questions),
+                ),
+                scope='#mixed-form',
+            ),
         })
 
     def post(self, request, subject, level_number):
@@ -1110,6 +1142,29 @@ class SubmitTopicAnswerView(LoginRequiredMixin, View):
             correct_answer_text = ' -> '.join(
                 q.answers.order_by('order').values_list('answer_text', flat=True)
             )
+        elif q.question_type == Question.COLUMN_OPERATION and q.column_result is not None:
+            # A stacked sum is graded from its own operands — the numbers ARE
+            # the question, so it carries no Answer row (the contract
+            # SELF_GRADED_ANSWER_FIELDS states, which the upload and import
+            # paths save against). Without this branch it fell into the typed
+            # fallback below, which found nothing to match and marked every
+            # student wrong: 867 × 8 answered 6936 — the result the question's
+            # own explanation works out — scored zero, with no correct answer
+            # shown beside the ❌ either. Worksheets and homework have always
+            # graded the type this way.
+            from maths.column_grading import grade_column_operation
+            raw = data.get('text_answer', '').strip()
+            is_correct = grade_column_operation(q, raw)
+            correct_answer_text = q.correct_answer_display()
+        elif (q.question_type == Question.LONG_DIVISION
+              and q.dividend is not None and q.divisor):
+            # Same contract, same hole: the quotient and remainder come from
+            # dividend/divisor, so a long division authored without an answer
+            # row was unanswerable in a quiz.
+            from maths.column_grading import grade_long_division
+            raw = data.get('text_answer', '').strip()
+            is_correct = grade_long_division(q, raw)
+            correct_answer_text = q.correct_answer_display()
         elif q.question_type == 'prime_factorization' and q.target_number:
             # Correct iff every entered value is prime AND their product == target_number.
             # Order doesn't matter; submitted as 'x'/'×'/'*'/',' separated digits.

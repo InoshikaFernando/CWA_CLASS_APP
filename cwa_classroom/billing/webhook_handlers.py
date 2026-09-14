@@ -110,10 +110,79 @@ def handle_checkout_completed(event_data):
         _activate_individual_from_checkout(metadata, stripe_subscription_id, stripe_customer_id)
     elif sub_type == 'pending_individual_registration':
         _activate_pending_registration(stripe_session_id, stripe_subscription_id)
+    elif sub_type == 'pending_institute_registration':
+        _activate_pending_institute(
+            stripe_session_id, stripe_subscription_id, stripe_customer_id)
     elif sub_type == 'invoice_payment':
         _handle_invoice_payment_checkout(metadata, session)
     else:
         logger.warning('Unknown checkout type: %s', sub_type)
+
+
+def _activate_pending_institute(stripe_session_id, stripe_subscription_id,
+                                stripe_customer_id=''):
+    """Build the institute now that Stripe has the card.
+
+    Nothing existed before this point — no user, no school, no subscription —
+    which is the whole reason the flow changed: the account used to be created
+    before the redirect, so closing the Stripe tab left a working school with no
+    card on file until the trial expired a fortnight later.
+
+    The subscription is created as *trialing*, carrying Stripe's own trial_end
+    rather than a locally computed one, so the date the app shows and the date
+    Stripe bills on cannot drift apart.
+    """
+    from accounts.institute_registration import activate_pending_institute
+    from accounts.models import PendingInstituteRegistration
+
+    pending = PendingInstituteRegistration.objects.filter(
+        stripe_session_id=stripe_session_id).first()
+    if not pending:
+        logger.error(
+            'No pending institute registration for checkout session %s',
+            stripe_session_id,
+        )
+        return
+
+    trial_end = _stripe_trial_end(stripe_subscription_id)
+    user, school, _sub = activate_pending_institute(
+        pending,
+        stripe_subscription_id=stripe_subscription_id,
+        stripe_customer_id=stripe_customer_id,
+        trial_end=trial_end,
+    )
+    if school:
+        logger.info(
+            'Institute %s activated from checkout session %s (trial ends %s)',
+            school.id, stripe_session_id, trial_end,
+        )
+    return user, school
+
+
+def _stripe_trial_end(stripe_subscription_id):
+    """Stripe's trial_end as an aware datetime, or None.
+
+    Read from Stripe rather than computed here: Stripe owns the date it will
+    bill on, and a locally added 14 days would drift from it the first time a
+    coupon, a proration or a clock skew moved things.
+    """
+    if not stripe_subscription_id:
+        return None
+    try:
+        import stripe
+
+        from billing.stripe_service import _ensure_stripe_key
+        _ensure_stripe_key()
+        stripe_sub = stripe.Subscription.retrieve(stripe_subscription_id)
+        raw = (stripe_sub.get('trial_end')
+               if isinstance(stripe_sub, dict) else getattr(stripe_sub, 'trial_end', None))
+        if not raw:
+            return None
+        return _ts_to_dt(raw)
+    except Exception:  # noqa: BLE001 — a missing date must not lose the account
+        logger.warning(
+            'Could not read trial_end for %s', stripe_subscription_id, exc_info=True)
+        return None
 
 
 def _activate_institute_from_checkout(metadata, stripe_subscription_id, stripe_customer_id=''):

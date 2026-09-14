@@ -17,6 +17,7 @@ from django.db import transaction
 from accounts.models import CustomUser, Role, UserRole
 from audit.services import log_event
 from billing.mixins import ModuleRequiredMixin
+from .topic_redirect import resolve_topic
 
 def _get_user_school_ids(user):
     """Get school IDs the user can manage (as admin or HoI via SchoolTeacher)."""
@@ -504,6 +505,31 @@ class StudentDashboardView(LoginRequiredMixin, View):
         except (ImportError, Exception):
             pass
 
+        # Homework and worksheets are graded work like any quiz, so they belong
+        # in the same feed — a student who only ever does homework would
+        # otherwise see an empty Recent Activity.
+        from homework.models import HomeworkSubmission
+        for r in HomeworkSubmission.objects.filter(
+            student=request.user,
+        ).select_related('homework').order_by('-submitted_at')[:20]:
+            _activity.append({
+                'completed_at': r.submitted_at,
+                'name': f"📚 Homework — {r.homework.title}",
+                'score_label': f"{r.score}/{r.total_questions} — {r.points:.1f}pts",
+                'pct': r.percentage,
+            })
+
+        from worksheets.models import WorksheetSubmission
+        for r in WorksheetSubmission.objects.filter(
+            student=request.user, completed_at__isnull=False,
+        ).select_related('assignment__worksheet').order_by('-completed_at')[:20]:
+            _activity.append({
+                'completed_at': r.completed_at,
+                'name': f"📝 Worksheet — {r.assignment.worksheet.name}",
+                'score_label': f"{r.score}/{r.total_questions}",
+                'pct': r.percentage,
+            })
+
         _activity.sort(key=lambda x: x['completed_at'], reverse=True)
         recent_activity = _activity[:20]
 
@@ -849,7 +875,11 @@ class TopicsView(LoginRequiredMixin, View):
 
 class TopicLevelsView(LoginRequiredMixin, View):
     def get(self, request, topic_id):
-        topic = get_object_or_404(Topic, id=topic_id)
+        # A merged-away topic id redirects to its survivor rather than 404ing
+        # on a link somebody still holds — see classroom.topic_redirect.
+        topic, moved = resolve_topic(topic_id, 'topic_levels')
+        if moved:
+            return moved
         levels = topic.levels.all().order_by('level_number')
         return render(request, 'teacher/topic_levels.html', {'topic': topic, 'levels': levels})
 

@@ -23,6 +23,53 @@ def _ensure_stripe_key():
 # Customers
 # ---------------------------------------------------------------------------
 
+def _find_existing_stripe_customer(email, metadata_key, metadata_value):
+    """Return a Stripe customer we already made for this owner, or None.
+
+    Asked before minting a new one, because the local row we would normally
+    persist the id to does not always exist yet. A school student has no
+    ``Subscription`` until checkout succeeds, so every failed attempt used to
+    create a fresh Stripe customer and throw the id away — one student retrying
+    a broken checkout eleven times left eleven customers behind.
+
+    That is not just clutter. A customer is currency-locked once it has a
+    subscription, so duplicates are how one person ends up with two currencies
+    attached to their name and the next checkout dies on "You cannot combine
+    currencies on a single customer".
+
+    Matched on ``metadata`` among customers sharing the email, which is an
+    immediately-consistent lookup — unlike ``Customer.search``, whose index lags
+    by about a minute and would still duplicate on a fast retry. Oldest match
+    wins so repeated attempts converge on one customer instead of walking
+    forward through new ones.
+
+    Never raises: if the lookup fails the caller creates a customer, which is
+    exactly the old behaviour. A monitoring nicety must not block a payment.
+    """
+    if not email:
+        return None
+    try:
+        found = stripe.Customer.list(email=email, limit=100)
+    except Exception:  # noqa: BLE001 — fall back to creating, never block checkout
+        logger.exception('Stripe customer lookup failed for %s', email)
+        return None
+
+    matches = [
+        c for c in (found.get('data') or [])
+        if str((c.get('metadata') or {}).get(metadata_key)) == str(metadata_value)
+    ]
+    if not matches:
+        return None
+    matches.sort(key=lambda c: c.get('created') or 0)
+    if len(matches) > 1:
+        logger.warning(
+            'Stripe has %s customers for %s=%s (%s) — reusing the oldest, %s. '
+            'Run "manage.py dedupe_stripe_customers" to clean up.',
+            len(matches), metadata_key, metadata_value, email, matches[0]['id'],
+        )
+    return matches[0]['id']
+
+
 def get_or_create_customer(user=None, school=None):
     """
     Get or create a Stripe Customer.
@@ -40,19 +87,24 @@ def get_or_create_customer(user=None, school=None):
         if sub and sub.stripe_customer_id:
             return sub.stripe_customer_id
 
-        customer = stripe.Customer.create(
-            email=school.admin.email if school.admin else '',
-            name=school.name,
-            metadata={
-                'school_id': school.id,
-                'school_name': school.name,
-                'type': 'institute',
-            },
-        )
+        admin_email = school.admin.email if school.admin else ''
+        customer_id = _find_existing_stripe_customer(
+            admin_email, 'school_id', school.id)
+        if customer_id is None:
+            customer = stripe.Customer.create(
+                email=admin_email,
+                name=school.name,
+                metadata={
+                    'school_id': school.id,
+                    'school_name': school.name,
+                    'type': 'institute',
+                },
+            )
+            customer_id = customer.id
         if sub:
-            sub.stripe_customer_id = customer.id
+            sub.stripe_customer_id = customer_id
             sub.save(update_fields=['stripe_customer_id'])
-        return customer.id
+        return customer_id
 
     if user:
         from billing.models import Subscription
@@ -64,19 +116,25 @@ def get_or_create_customer(user=None, school=None):
         if sub and sub.stripe_customer_id:
             return sub.stripe_customer_id
 
-        customer = stripe.Customer.create(
-            email=user.email,
-            name=user.get_full_name() or user.username,
-            metadata={
-                'user_id': user.id,
-                'username': user.username,
-                'type': 'individual',
-            },
-        )
+        # No local record of a customer — but there may still be one in Stripe
+        # from an earlier attempt that had nowhere to persist the id.
+        customer_id = _find_existing_stripe_customer(
+            user.email, 'user_id', user.id)
+        if customer_id is None:
+            customer = stripe.Customer.create(
+                email=user.email,
+                name=user.get_full_name() or user.username,
+                metadata={
+                    'user_id': user.id,
+                    'username': user.username,
+                    'type': 'individual',
+                },
+            )
+            customer_id = customer.id
         if sub:
-            sub.stripe_customer_id = customer.id
+            sub.stripe_customer_id = customer_id
             sub.save(update_fields=['stripe_customer_id'])
-        return customer.id
+        return customer_id
 
     raise ValueError('Must provide either user or school')
 
@@ -221,6 +279,52 @@ def create_pending_registration_checkout_session(email, package, request, stripe
     return stripe.checkout.Session.create(**session_kwargs)
 
 
+def create_pending_institute_checkout_session(email, plan, request,
+                                             trial_period_days=14,
+                                             stripe_coupon_id=None):
+    """Checkout for an institute whose account does not exist yet.
+
+    The card is collected now; Stripe charges nothing until the trial ends, and
+    a subscription cancelled inside the trial is never invoiced. So this asks
+    for a card up front without asking for money up front — which is the whole
+    point of gating account creation on it.
+
+    ``payment_method_collection='always'`` is set explicitly rather than left to
+    Stripe's default: the default for a trialling subscription has moved before,
+    and an account created without a card on file is exactly the bug this
+    replaces.
+    """
+    _ensure_stripe_key()
+
+    sub_metadata = {
+        'type': 'pending_institute_registration',
+        'plan_id': plan.id,
+    }
+    session_kwargs = dict(
+        customer_email=email,
+        mode='subscription',
+        line_items=[{'price': plan.stripe_price_id, 'quantity': 1}],
+        success_url=request.build_absolute_uri(
+            reverse('institute_checkout_success')
+        ) + '?session_id={CHECKOUT_SESSION_ID}',
+        cancel_url=request.build_absolute_uri(
+            reverse('register_teacher_center')
+        ),
+        metadata=dict(sub_metadata),
+        subscription_data={
+            'metadata': dict(sub_metadata),
+            'trial_period_days': trial_period_days,
+        },
+        billing_address_collection='required',
+        payment_method_types=['card'],
+        payment_method_collection='always',
+    )
+    if stripe_coupon_id:
+        session_kwargs['discounts'] = [{'coupon': stripe_coupon_id}]
+
+    return stripe.checkout.Session.create(**session_kwargs)
+
+
 def create_student_checkout_session(user, package, request, stripe_coupon_id=None):
     """
     Create a Stripe Checkout Session for a school student subscription.
@@ -313,7 +417,7 @@ def change_institute_plan(school_subscription, new_plan):
 # ---------------------------------------------------------------------------
 
 def add_module_to_subscription(school_subscription, module_slug, stripe_price_id):
-    """Add a module as a subscription item ($10/mo add-on)."""
+    """Add a module as a subscription item, billed at its own price."""
     _ensure_stripe_key()
     if not school_subscription.stripe_subscription_id:
         raise ValueError('No active Stripe subscription')
@@ -535,6 +639,148 @@ def sync_module_to_stripe(module_product):
     return price.id
 
 
+# ---------------------------------------------------------------------------
+# AI Question Import — half price for the first year
+# ---------------------------------------------------------------------------
+#
+# The offer the plans page advertises, applied automatically. There is no code
+# for anyone to type: adding an AI import module attaches the coupon, and
+# Stripe drops it by itself once the twelve months are up.
+#
+# The coupon is scoped with ``applies_to.products`` so it discounts ONLY the AI
+# import line. A subscription-level coupon with no scope would take 50% off the
+# institute's own plan too, which is not the offer and is not recoverable once
+# invoiced.
+
+
+def ai_intro_coupon_id():
+    """A stable id that changes when the terms do.
+
+    Baking the terms into the id means a coupon can never be reused at terms it
+    was not created with: change the percentage or the length and the next call
+    creates a new coupon rather than quietly attaching the old one.
+    """
+    from billing import ai_tiers
+
+    return (f'ai-import-intro-{ai_tiers.INTRO_DISCOUNT_PERCENT}off-'
+            f'{ai_tiers.INTRO_DISCOUNT_MONTHS}m')
+
+
+def _ai_intro_products():
+    """Stripe product ids for the AI import tiers.
+
+    ``sync_module_to_stripe`` creates products at a deterministic id, so these
+    are derivable without a round trip.
+    """
+    from billing.models import ModuleProduct
+    from billing import ai_tiers
+
+    return [
+        f'module_{slug}' for slug in ModuleProduct.objects
+        .filter(module__startswith=ai_tiers.MODULE_PREFIX)
+        .values_list('module', flat=True)
+    ]
+
+
+def ensure_ai_intro_coupon():
+    """The intro coupon, created once and reused. Returns its id, or None."""
+    from billing import ai_tiers
+
+    _ensure_stripe_key()
+    coupon_id = ai_intro_coupon_id()
+    try:
+        stripe.Coupon.retrieve(coupon_id)
+        return coupon_id
+    except stripe.error.InvalidRequestError:
+        pass  # Not there yet — create it below.
+
+    products = _ai_intro_products()
+    if not products:
+        logger.error('No AI import products in the catalogue — cannot scope the '
+                     'intro coupon, and an unscoped one would discount the '
+                     "institute's whole plan. Not creating it.")
+        return None
+
+    coupon = stripe.Coupon.create(
+        id=coupon_id,
+        percent_off=float(ai_tiers.INTRO_DISCOUNT_PERCENT),
+        duration='repeating',
+        duration_in_months=ai_tiers.INTRO_DISCOUNT_MONTHS,
+        name=(f'AI Question Import — {ai_tiers.INTRO_DISCOUNT_PERCENT}% off '
+              f'the {ai_tiers.INTRO_DISCOUNT_LABEL}'),
+        applies_to={'products': products},
+        metadata={'type': 'ai_import_intro'},
+    )
+    return coupon.id
+
+
+def apply_ai_intro_discount(school_subscription):
+    """Put the school's AI import module on its first-year price.
+
+    Returns ``(applied, error)``. ``error`` is written for the person who just
+    clicked Activate, and every caller must show it: the plans page promised
+    half price, so a school that ends up without the discount is being charged
+    twice what it was quoted. Silence here is how that goes unnoticed.
+
+    Never overwrites a discount the subscription already has. Institutes can
+    register with their own discount code, and a coupon set on the subscription
+    replaces whatever was there — trading their negotiated discount for this
+    one, with no record of what was lost.
+    """
+    if not school_subscription.stripe_subscription_id:
+        # Trial or locally-activated module: nothing is being charged, so
+        # there is nothing to discount.
+        return False, None
+
+    _ensure_stripe_key()
+    coupon_id = ai_intro_coupon_id()
+
+    try:
+        subscription = stripe.Subscription.retrieve(
+            school_subscription.stripe_subscription_id,
+        )
+    except stripe.error.StripeError as e:
+        logger.exception('Could not read subscription %s to apply the AI intro '
+                         'discount', school_subscription.stripe_subscription_id)
+        return False, str(e)
+
+    existing = getattr(subscription, 'discount', None)
+    existing_coupon = getattr(existing, 'coupon', None) if existing else None
+    existing_id = getattr(existing_coupon, 'id', None)
+
+    if existing_id == coupon_id:
+        # Already on it — including after a tier switch, which keeps the
+        # original twelve-month clock rather than restarting it.
+        return True, None
+
+    if existing_id:
+        logger.warning(
+            'Subscription %s already carries coupon %s — not replacing it with '
+            'the AI intro discount.',
+            school_subscription.stripe_subscription_id, existing_id,
+        )
+        return False, (
+            'Your subscription already has a discount applied, so the AI '
+            'import introductory price was not added on top of it. Contact '
+            'support to have it applied.'
+        )
+
+    try:
+        coupon_id = ensure_ai_intro_coupon()
+        if not coupon_id:
+            return False, ('The introductory discount is not set up in Stripe '
+                           'yet. Contact support before you are invoiced.')
+        stripe.Subscription.modify(
+            school_subscription.stripe_subscription_id, coupon=coupon_id,
+        )
+    except stripe.error.StripeError as e:
+        logger.exception('Failed to apply the AI intro discount to %s',
+                         school_subscription.stripe_subscription_id)
+        return False, str(e)
+
+    return True, None
+
+
 def _build_stripe_coupon_kwargs(code_obj):
     """Build kwargs for stripe.Coupon.create from any discount/coupon model instance."""
     kwargs = {
@@ -546,6 +792,53 @@ def _build_stripe_coupon_kwargs(code_obj):
     if kwargs['duration'] == 'repeating' and getattr(code_obj, 'duration_in_months', None):
         kwargs['duration_in_months'] = code_obj.duration_in_months
     return kwargs
+
+
+def ensure_stripe_coupon(code_obj):
+    """Give a partial discount code the Stripe coupon its checkout needs.
+
+    Returns ``(synced, error)``. Never raises — the caller decides how loudly
+    to fail, and every caller must say something: a partial code with no
+    coupon id is silently ignored by Stripe Checkout, so the student pays the
+    FULL price while the subscription records the discount they were promised.
+    Reporting "created" for a code in that state is how an overcharge gets set
+    up months before anyone redeems it.
+
+    A 100%-off code needs no coupon — it never reaches Stripe at all — so it is
+    reported as synced. Works for both ``DiscountCode`` and
+    ``InstituteDiscountCode``; the fields it reads are common to both.
+    """
+    if getattr(code_obj, 'is_fully_free', False):
+        return True, None
+    if code_obj.stripe_coupon_id:
+        return True, None
+    if not _stripe_configured():
+        return False, 'Stripe is not configured on this server (no STRIPE_SECRET_KEY).'
+    try:
+        _ensure_stripe_key()
+        kwargs = _build_stripe_coupon_kwargs(code_obj)
+        kwargs['metadata']['discount_code_id'] = code_obj.id
+        coupon = stripe.Coupon.create(**kwargs)
+    except Exception as e:  # noqa: BLE001 — reported to the caller, not swallowed
+        logger.exception(
+            'Stripe coupon creation failed for code %s (%s%% off)',
+            getattr(code_obj, 'code', code_obj),
+            getattr(code_obj, 'discount_percent', '?'),
+        )
+        return False, str(e)
+
+    code_obj.stripe_coupon_id = coupon.id
+    code_obj.save(update_fields=['stripe_coupon_id'])
+    return True, None
+
+
+#: What to tell an admin whose code was saved without a working coupon.
+UNSYNCED_COUPON_WARNING = (
+    'Discount code "{code}" was saved, but its Stripe coupon could NOT be '
+    'created ({error}). Students cannot check out with this code until it is '
+    'synced — they would otherwise be charged the full price. Re-save the code '
+    'once Stripe is reachable, or run "manage.py sync_stripe_coupons".'
+)
 
 
 def sync_discount_to_stripe(discount_code):

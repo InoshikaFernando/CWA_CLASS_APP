@@ -108,6 +108,10 @@
         return;
       }
       _answered = true;
+      // The question just answered is `currentQ` — grow the picture now rather
+      // than waiting for the next question to load, so the reward lands with
+      // the feedback.
+      if (window.ProgressArt) window.ProgressArt.set(currentQ);
       _showFeedback(data, sessionId);
     } catch (err) {
       _clearChecking();

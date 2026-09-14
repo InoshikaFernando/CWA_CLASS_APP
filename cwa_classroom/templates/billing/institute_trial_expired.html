@@ -1,4 +1,5 @@
 {% extends "base_auth.html" %}
+{% load billing_tags %}
 {% block title %}Trial Expired{% endblock %}
 
 {% block card_content %}
@@ -30,7 +31,7 @@
           </p>
         </div>
         <div class="text-right">
-          <span class="text-lg font-bold text-gray-800">${{ plan.price }}</span>
+          <span class="text-lg font-bold text-gray-800">{{ plan.price|money }}</span>
           <span class="text-xs text-gray-500">/mo</span>
         </div>
       </div>
@@ -50,4 +51,16 @@
 <div class="mt-4 text-center">
   <a href="{% url 'logout' %}" class="text-sm text-gray-400 hover:text-gray-600">Log out</a>
 </div>
+
+  <div class="mt-6 bg-primary/5 border border-primary/20 rounded-xl p-4 text-center">
+    <p class="text-sm text-gray-700">
+      <span class="font-semibold text-gray-800">Larger institute, or several campuses?</span>
+      Volume pricing is available above these plans.
+    </p>
+    <a href="{% url 'contact' %}"
+       class="inline-block mt-2 text-sm font-semibold text-primary hover:text-primary-dark transition">
+      Talk to sales about a discount &rarr;
+    </a>
+  </div>
+
 {% endblock %}

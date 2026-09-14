@@ -444,3 +444,62 @@ class PaymentDelayTileTests(TestCase):
         self.assertContains(resp, '1 not told')
         # The page has to say what to do about it, or the number is trivia.
         self.assertContains(resp, 'notify_past_due --send')
+
+
+class OpsDashboardScheduledPublishTests(TestCase):
+    """The publish cron's tile.
+
+    ``publish_scheduled_homework`` is the only thing that makes a scheduled set
+    visible to students, and its cron drop-in is written by the one-time
+    provisioning script rather than by a deploy — so a droplet can run without
+    it while every question-schedule week is built, previewed, and never sent.
+    Nothing errors when that happens; this tile is the only place it shows.
+    """
+
+    def setUp(self):
+        User.objects.create_superuser(
+            username='boss', email='boss@example.local', password='Pass123!')
+        self.client.login(username='boss', password='Pass123!')
+
+    @staticmethod
+    def _overdue(minutes_ago):
+        from classroom.models import ClassRoom, School
+        from homework.models import Homework
+
+        admin = User.objects.create_user(
+            username=f'admin{minutes_ago}', email='a@example.local',
+            password='Pass123!')
+        school = School.objects.create(
+            name='Ops School', slug=f'ops-school-{minutes_ago}', admin=admin)
+        classroom = ClassRoom.objects.create(
+            name='Year 6 Maths', code=f'OPS{minutes_ago}', school=school)
+        return Homework.objects.create(
+            classroom=classroom, created_by=admin, title='Week 3 practice',
+            homework_type='topic', num_questions=5,
+            due_date=timezone.now() + timedelta(days=7),
+            publish_at=timezone.now() - timedelta(minutes=minutes_ago),
+        )
+
+    def test_healthy_publishing_renders_without_a_banner(self):
+        resp = self.client.get(reverse('ops_admin_dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Scheduled homework')
+        self.assertEqual(resp.context['scheduled_publish']['status'], 'ok')
+        self.assertNotContains(resp, 'Scheduled homework is not being published')
+
+    def test_a_stalled_cron_shows_the_banner_and_the_unsent_set(self):
+        self._overdue(minutes_ago=60 * 12)
+        resp = self.client.get(reverse('ops_admin_dashboard'))
+        self.assertEqual(resp.context['scheduled_publish']['status'], 'critical')
+        self.assertContains(resp, 'Scheduled homework is not being published')
+        self.assertContains(resp, 'Week 3 practice')
+        self.assertContains(resp, 'Year 6 Maths')
+        # The remedy, not just the symptom: the drop-in to look for.
+        self.assertContains(resp, '/etc/cron.d/cwa-publish-homework')
+
+    def test_a_publish_a_few_ticks_late_is_a_warning_not_an_emergency(self):
+        self._overdue(minutes_ago=45)
+        resp = self.client.get(reverse('ops_admin_dashboard'))
+        self.assertEqual(resp.context['scheduled_publish']['status'], 'warning')
+        self.assertContains(resp, 'Scheduled homework publishing is behind')
+        self.assertNotContains(resp, 'Scheduled homework is not being published')

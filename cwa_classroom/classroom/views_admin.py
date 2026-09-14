@@ -4126,12 +4126,56 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
             return ''
         return json.dumps(question.plane_spec, indent=2, ensure_ascii=False)
 
+    @staticmethod
+    def _recorded_wrong(question):
+        """How many answers to ``question`` are on record marked wrong.
+
+        Shown beside the re-mark tick so the reader knows the size of what they
+        are about to authorise. Deliberately an upper bound, not a prediction:
+        at the moment this form is drawn the answer key has not been corrected
+        yet, so the number that WILL flip is unknowable — it depends on the edit
+        being typed. Three indexed counts, cheap enough for a modal open.
+        """
+        from homework.models import HomeworkStudentAnswer
+        from maths.models import StudentAnswer
+        from worksheets.models import WorksheetStudentAnswer
+
+        return (
+            StudentAnswer.objects.filter(
+                question=question, is_correct=False).count()
+            + HomeworkStudentAnswer.objects.filter(
+                question=question, is_correct=False,
+                review_status=HomeworkStudentAnswer.REVIEW_AUTO).count()
+            + WorksheetStudentAnswer.objects.filter(
+                question=question, is_correct=False).count()
+        )
+
     def _form_context(self, question, error=None, request=None):
+        from maths.answer_key_regrade import can_regrade
+
+        # Re-marking past answers is offered only where it could do anything:
+        # an AI- or human-graded question's marks are somebody's judgement, and
+        # a tick box promising to correct them would be a lie.
+        offer_regrade = can_regrade(question)
+        # Pre-ticked only when the reader arrived from the wrong-answer
+        # leaderboard, where re-marking IS the job — they are looking at a
+        # question because children lost marks to it. Opening the same editor
+        # from the question bank is ordinary maintenance, so it starts off and
+        # the reader opts in. One endpoint serves both pages, so this parameter
+        # is the only thing that can tell them apart.
+        wants_regrade = bool(
+            request is not None
+            and (request.GET.get('regrade') == '1'
+                 or request.POST.get('regrade_answers') == 'on'))
         return {
             'question': question,
             'answers': question.answers.order_by('order', 'id'),
             'type_choices': self._type_choices(question),
             'error': error,
+            'offer_regrade': offer_regrade,
+            'regrade_checked': wants_regrade,
+            'recorded_wrong': (self._recorded_wrong(question)
+                               if offer_regrade else 0),
             # A structured question is graded from its spec, not from Answer
             # rows, so the options editor is hidden for it and the plane editor
             # shown instead.
@@ -4144,7 +4188,7 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
         from maths.models import Question
         question = get_object_or_404(Question, id=question_id, school__isnull=True)
         return render(request, 'admin_dashboard/partials/question_edit_form.html',
-                      self._form_context(question))
+                      self._form_context(question, request=request))
 
     @staticmethod
     def _read_plane_spec(request, question):
@@ -4281,8 +4325,13 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
         return None, removed
 
     def post(self, request, question_id):
+        from maths.answer_key_regrade import grading_fingerprint
         from maths.models import Question
         question = get_object_or_404(Question, id=question_id, school__isnull=True)
+
+        # Taken BEFORE the edit, so the save can tell whether it changed how
+        # this question marks at all. See the re-mark block below.
+        was = grading_fingerprint(question)
 
         error, removed = self._apply_edits(request, question)
         if error:
@@ -4308,6 +4357,45 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
             request=request,
         )
 
+        # The other half of the repair. Editing the key fixes the question from
+        # this moment on; every child who already sat it keeps the nought — in
+        # their history, in their teacher's view and in the statistics built on
+        # top. So a save that corrects the key also re-marks what is already
+        # recorded against it, wrong-to-right only.
+        #
+        # TWO gates, and both have to open.
+        #
+        # The tick box, because re-marking is a decision about children's
+        # records and not a side effect of pressing Save. It arrives ticked
+        # from the wrong-answer leaderboard, where giving marks back IS the
+        # job, and unticked from the question bank, where the same editor is
+        # used for ordinary maintenance. Reading it from POST rather than from
+        # the referring page keeps the choice with the person who made it.
+        #
+        # The fingerprint, because a save that did not change how the question
+        # marks has nothing to correct. Without it a typo fixed in the stem
+        # re-ran today's grader over every answer ever given — and where the
+        # grader has improved since, marks moved on an edit nobody meant as a
+        # correction.
+        from maths.answer_key_regrade import Regraded, regrade_question
+
+        wants_regrade = request.POST.get('regrade_answers') == 'on'
+        grading_changed = grading_fingerprint(question) != was
+        regraded = (regrade_question(question)
+                    if (wants_regrade and grading_changed) else Regraded())
+        if regraded:
+            log_event(
+                user=request.user, school=None,
+                category='data_change', action='global_question_marks_regraded',
+                detail={'question_id': question.id,
+                        'quiz': regraded.quiz, 'homework': regraded.homework,
+                        'worksheets': regraded.worksheets,
+                        'students': len(regraded.students),
+                        'attempts': regraded.attempts,
+                        'submissions': regraded.submissions},
+                request=request,
+            )
+
         # The modal gets a "Saved" body; the listing row is refreshed out of
         # band. Returning the row alone meant the form had to target that row,
         # which does not exist when the editor was opened by ?edit=<id> from
@@ -4328,6 +4416,10 @@ class GlobalQuestionEditView(RoleRequiredMixin, View):
             'correct_count': sum(1 for a in answers if a.is_correct),
             'multi_correct': (question.question_type in CHOICE_QUESTION_TYPES
                               and sum(1 for a in answers if a.is_correct) > 1),
+            # Marks given back are the part of this save nobody can see from
+            # the question, so the modal says it in words rather than leaving
+            # a silent write to a child's history.
+            'regraded': regraded.summary(),
         })
 
 

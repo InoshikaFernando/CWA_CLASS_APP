@@ -74,7 +74,45 @@ class Command(BaseCommand):
             if result.data:
                 starting_after = result.data[-1].id
 
-        self.stdout.write(f'Found {len(prices)} active prices in Stripe.\n')
+        self.stdout.write(f'Found {len(prices)} active prices in Stripe.')
+
+        # Only prices in the currency this environment bills in.
+        #
+        # Nothing below this line looks at currency: plans match on amount
+        # alone, modules on product name or metadata. So on an environment
+        # whose Stripe account holds NZD prices, flipping STRIPE_CURRENCY to
+        # usd and re-running this command would re-match every row to the same
+        # NZD price and report it as synced — the app would then display USD
+        # and charge NZD, on every plan and module at once. Worse for plans,
+        # whose lookup is keyed on the amount alone: an NZD 189 and a USD 189
+        # price collide and whichever came last silently wins.
+        #
+        # Filtering here rather than at each match point means a currency
+        # migration reports every row as *missing*, which is the truth —
+        # --create-missing then mints prices in the new currency. Existing
+        # subscriptions keep the price they were created with until they are
+        # moved; a Stripe Price cannot be re-denominated.
+        want_currency = (getattr(settings, 'STRIPE_CURRENCY', 'usd') or 'usd').lower()
+        other_currency = [p for p in prices
+                          if (getattr(p, 'currency', '') or '').lower() != want_currency]
+        prices = [p for p in prices
+                  if (getattr(p, 'currency', '') or '').lower() == want_currency]
+        if other_currency:
+            seen = sorted({(getattr(p, 'currency', '') or '?').upper()
+                           for p in other_currency})
+            self.stdout.write(self.style.WARNING(
+                f'Ignoring {len(other_currency)} price(s) in {", ".join(seen)} — '
+                f'this environment bills in {want_currency.upper()}.'
+            ))
+            if not prices:
+                self.stdout.write(self.style.WARNING(
+                    f'  No {want_currency.upper()} prices exist yet. If STRIPE_CURRENCY '
+                    f'was just changed, this is a currency migration: every row will '
+                    f'report as missing, and --create-missing will create the new '
+                    f'prices. Schools already subscribed keep their old-currency '
+                    f'price until their subscription is moved.'
+                ))
+        self.stdout.write(f'Using {len(prices)} {want_currency.upper()} price(s).\n')
 
         # Build lookup: price amount (in dollars) -> price object
         # Only recurring monthly prices for institute plans
@@ -274,9 +312,34 @@ class Command(BaseCommand):
                         f"(from: {match['product_name']})"
                     ))
                 updated_modules += 1
+            elif create_missing:
+                # Until this branch existed, --create-missing covered institute
+                # plans only. Modules fell through to [MISS] and the summary
+                # still read "Module Products: updated 0", so the command
+                # looked like it had done its job while creating nothing.
+                if dry_run:
+                    self.stdout.write(self.style.WARNING(
+                        f"  [DRY RUN] {mp.name} (${mp.price}/mo) -- "
+                        f"would create Stripe Product + Price"
+                    ))
+                    updated_modules += 1
+                else:
+                    price_id = self._create_stripe_product_and_price(
+                        mp.name, mp.price, mp.module, 'module',
+                        extra_metadata={'module_slug': mp.module},
+                    )
+                    if price_id:
+                        mp.stripe_price_id = price_id
+                        mp.save(update_fields=['stripe_price_id'])
+                        self.stdout.write(self.style.SUCCESS(
+                            f"  [CREATED] {mp.name} (${mp.price}/mo) -- "
+                            f"stripe_price_id={price_id}"
+                        ))
+                        updated_modules += 1
             else:
                 self.stdout.write(self.style.WARNING(
-                    f"  [MISS] {mp.name} -- no matching Stripe price found"
+                    f"  [MISS] {mp.name} -- no matching Stripe price found "
+                    f"(re-run with --create-missing to create it)"
                 ))
 
         # Summary
@@ -289,13 +352,24 @@ class Command(BaseCommand):
         if dry_run:
             self.stdout.write(self.style.WARNING('\nDry run -- no changes saved. Run without --dry-run to apply.'))
 
-    def _create_stripe_product_and_price(self, name, price_amount, slug, product_type):
-        """Create a Stripe Product and recurring monthly Price. Returns the price ID."""
+    def _create_stripe_product_and_price(self, name, price_amount, slug,
+                                         product_type, extra_metadata=None):
+        """Create a Stripe Product and recurring monthly Price. Returns the price ID.
+
+        ``extra_metadata`` matters more than it looks. The module matcher below
+        keys off ``metadata.module_slug``, so a module product created without
+        it would not be found on the next run — the command would create a
+        second Stripe product every time it was called, and the name-keyword
+        fallback would never cover the newer modules. Stamping the slug at
+        creation is what makes this idempotent.
+        """
         currency = getattr(settings, 'STRIPE_CURRENCY', 'usd')
+        metadata = {'slug': slug, 'type': product_type}
+        metadata.update(extra_metadata or {})
         try:
             product = stripe.Product.create(
                 name=name,
-                metadata={'slug': slug, 'type': product_type},
+                metadata=metadata,
             )
             price = stripe.Price.create(
                 product=product.id,

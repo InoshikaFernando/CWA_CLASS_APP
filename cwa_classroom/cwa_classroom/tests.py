@@ -1,14 +1,21 @@
 """Tests for project-level views (health check) and middleware."""
 
+from importlib import import_module
+
+from django.conf import settings
 from django.db import connection
-from django.test import RequestFactory, TestCase
+from django.http import HttpResponse
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
 from django.contrib.auth.models import AnonymousUser
+from django.core.exceptions import (
+    DisallowedHost, SuspiciousOperation, TooManyFieldsSent,
+)
 from django.middleware.csrf import REASON_NO_CSRF_COOKIE
 
 from cwa_classroom.middleware import SlowQueryLoggingMiddleware
-from cwa_classroom.views import csrf_failure
+from cwa_classroom.views import bad_request, csrf_failure
 
 
 class HealthCheckTests(TestCase):
@@ -255,3 +262,101 @@ class CsrfFailureViewTests(TestCase):
         resp = csrf_failure(request, reason=REASON_NO_CSRF_COOKIE)
         self.assertEqual(resp.status_code, 403)
         self.assertIn(b'Cookies are switched off', resp.content)
+
+
+class BadRequestViewTests(TestCase):
+    """handler400 — a 400 has to say what happened.
+
+    Django converts a SuspiciousOperation raised while parsing a request into a
+    400 before any view runs, and its stock page is the four words
+    "Bad Request (400)". That was the entire message a teacher got when the PDF
+    review form outgrew DATA_UPLOAD_MAX_NUMBER_FIELDS on submit; it took two
+    production incidents to work out what it meant.
+    """
+
+    def test_an_oversized_form_says_so_and_offers_the_way_back(self):
+        request = RequestFactory().post('/homework/pdf/preview/134/')
+        response = bad_request(request, TooManyFieldsSent('too many'))
+
+        self.assertEqual(response.status_code, 400)
+        body = response.content.decode()
+        self.assertNotEqual(body.strip(), '<h1>Bad Request (400)</h1>')
+        self.assertIn('too big to send', body)
+        # The review page posts to its own URL and the POST never reached the
+        # view, so the questions are still there — send the teacher back to them.
+        self.assertIn('/homework/pdf/preview/134/', body)
+
+    def test_an_unparseable_request_gets_the_generic_page(self):
+        request = RequestFactory().get('/anything/')
+        response = bad_request(request, SuspiciousOperation('nope'))
+
+        self.assertEqual(response.status_code, 400)
+        body = response.content.decode()
+        self.assertIn("couldn't read that request", body)
+        self.assertNotIn('too big to send', body)
+
+    def test_a_disallowed_host_renders_without_reaching_for_the_host(self):
+        """DisallowedHost arrives here too. Rendering the page that reports it
+        must not itself touch request.get_host()."""
+        request = RequestFactory().get('/', HTTP_HOST='not-allowed.example.com')
+        response = bad_request(request, DisallowedHost('bad host'))
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_the_urlconf_actually_points_at_it(self):
+        from django.urls import get_resolver
+
+        self.assertIs(get_resolver().resolve_error_handler(400), bad_request)
+
+class SubjectSubdomainTests(TestCase):
+    """A subject subdomain must not take the whole site down.
+
+    ``SubdomainURLRoutingMiddleware`` used to point four hostnames at urlconf
+    modules — ``cwa_classroom.urls_maths`` and three siblings — that were never
+    written and appear nowhere in git history. Django imports ``request.urlconf``
+    to resolve a URL, so any request to one of those hosts raised
+    ``ModuleNotFoundError``: a 500 on EVERY path of that subdomain, not a 404 and
+    not a fallback to ``ROOT_URLCONF``. It went unnoticed because ``www`` and the
+    apex domain are not keys in the map and so took the fallback.
+
+    Subjects are served from paths now (/maths/, /coding/, …), so the middleware
+    is gone rather than repaired. These tests pin the outcome, not the mechanism:
+    whatever routing arrives later, a subject-shaped hostname must resolve like
+    any other host.
+    """
+
+    SUBJECT_HOSTS = [
+        'maths.wizardslearninghub.co.nz',
+        'coding.wizardslearninghub.co.nz',
+        'music.wizardslearninghub.co.nz',
+        'science.wizardslearninghub.co.nz',
+    ]
+
+    @override_settings(ALLOWED_HOSTS=['*'])
+    def test_a_subject_subdomain_serves_the_normal_urlconf(self):
+        for host in self.SUBJECT_HOSTS:
+            with self.subTest(host=host):
+                resp = self.client.get(reverse('api_health'), HTTP_HOST=host)
+                self.assertEqual(resp.status_code, 200)
+                self.assertEqual(resp.json()['status'], 'ok')
+
+    @override_settings(ALLOWED_HOSTS=['*'])
+    def test_no_middleware_rewrites_the_urlconf_per_host(self):
+        """The specific regression: a host must not select a urlconf module.
+
+        Asserted through ``request.urlconf`` rather than by grepping for the
+        old class name, so a re-introduction under any name fails here.
+        """
+        for host in self.SUBJECT_HOSTS + ['www.wizardslearninghub.co.nz']:
+            with self.subTest(host=host):
+                request = RequestFactory().get('/', HTTP_HOST=host)
+                for mw_path in settings.MIDDLEWARE:
+                    module, _, name = mw_path.rpartition('.')
+                    middleware = getattr(import_module(module), name)(
+                        lambda req: HttpResponse('ok'))
+                    middleware(request)
+                self.assertFalse(
+                    hasattr(request, 'urlconf'),
+                    f'{host} had its urlconf rewritten to '
+                    f'{getattr(request, "urlconf", None)!r} — an unimportable '
+                    f'value here is a 500 on every URL of that host.')

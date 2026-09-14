@@ -397,8 +397,53 @@ class Question(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # ---- Retirement (CPP-410) ------------------------------------------
+    # A question that must stop being served but whose history must survive.
+    #
+    # Deleting is not the tool for this: every FK pointing at Question is
+    # on_delete=CASCADE, so removing one takes every homework, worksheet and
+    # quiz answer ever given to it — rewriting completed homework and a
+    # child's answer history to tidy up, say, a diagram that never got
+    # attached. Retiring withdraws the question and leaves all of that alone.
+    retired_at = models.DateTimeField(
+        null=True, blank=True, db_index=True,
+        help_text='Set to withdraw this question from all future selection. '
+                  'Past submissions keep it, shown greyed out. Clear it to '
+                  'bring the question back.',
+    )
+    retired_reason = models.TextField(
+        blank=True, default='',
+        help_text='Why it was withdrawn — shown to the reviewer, so the next '
+                  'person does not have to rediscover the fault.',
+    )
+
     # Custom manager for visibility filtering
     objects = MathsQuestionsManager()
+
+    @property
+    def is_retired(self):
+        """Has this question been withdrawn from service?
+
+        Read by the take page (which skips it) and the result page (which
+        still shows it, greyed). Kept as a property so templates and callers
+        ask one question rather than each testing ``retired_at`` for
+        themselves.
+        """
+        return self.retired_at is not None
+
+    def retire(self, reason='', *, when=None):
+        """Withdraw this question from service, keeping every answer to it."""
+        self.retired_at = when or timezone.now()
+        self.retired_reason = reason or ''
+        self.save(update_fields=['retired_at', 'retired_reason', 'updated_at'])
+        return self
+
+    def unretire(self):
+        """Put a repaired question back into service."""
+        self.retired_at = None
+        self.retired_reason = ''
+        self.save(update_fields=['retired_at', 'retired_reason', 'updated_at'])
+        return self
 
     @property
     def needs_grading(self):
@@ -513,12 +558,45 @@ class Question(models.Model):
             from maths.pattern_grading import grade_pattern
             return grade_pattern(self.question_text, text_answer).is_correct
 
+        # A column sum and a long division are worked out from their own
+        # numbers — the operands ARE the question — so they may carry no Answer
+        # row at all (what SELF_GRADED_ANSWER_FIELDS promises the import and
+        # upload paths). Like the pattern branch above, this must come before
+        # the no-stored-answer guard below, which marked every correct answer
+        # wrong. A question of these types that is missing its numbers grades
+        # against its Answer rows as before.
+        from maths.column_grading import grade_self_graded_arithmetic
+        arithmetic = grade_self_graded_arithmetic(self, text_answer)
+        if arithmetic is not None:
+            return arithmetic
+
         correct = [
             a.answer_text for a in self.answers.filter(is_correct=True)
             if a.answer_text
         ]
         if not correct:
             return False
+
+        # "Solve x² = 23, rounding to two decimal places" has TWO roots, and
+        # the bank already knows there is no single way to write them: the same
+        # question stores "x=±4.80", "x=4.80 or x=-4.80" and "±4.80" as three
+        # Answer rows. A student who names the same two roots in a fourth
+        # equally correct way — "+/-4.80", the ASCII spelling reached for when
+        # there is no ± key — matched none of the three and was marked wrong
+        # under a screen listing all of them.
+        #
+        # Compared on the magnitude the pair shares, so every spelling of the
+        # same two roots is one answer. Deliberately NOT a fold: a bare "4.80"
+        # names one root of two, and accepting an incomplete answer is worse
+        # than rejecting a differently-spelled complete one. This runs before
+        # the answer_format branches because "±4.80" is not a polynomial —
+        # an algebra- or equation-format question would otherwise reject
+        # every spelling of it.
+        from maths.algebra_grading import plus_minus_magnitude
+        magnitude = plus_minus_magnitude(text_answer)
+        if magnitude is not None and any(
+                magnitude == plus_minus_magnitude(c) for c in correct):
+            return True
 
         if self.answer_format == self.ANSWER_FORMAT_ALGEBRA:
             from maths.algebra_grading import is_algebraic_answer_correct
@@ -542,6 +620,7 @@ class Question(models.Model):
         from maths.algebra_grading import (
             fold_answer as _fold,
             is_reordered_expression_correct,
+            is_reordered_product_correct,
             option_label_set,
         )
 
@@ -593,6 +672,15 @@ class Question(models.Model):
         # student's answer is still graded strictly, so un-combined like terms
         # and un-expanded brackets stay wrong (see is_reordered_expression_correct).
         if any(is_reordered_expression_correct(text_answer, c) for c in correct):
+            return True
+
+        # "Factorise 16p^2 - 81q^2" stores "(4p - 9q)(4p + 9q)", and
+        # multiplication commutes — the same two factors written the other way
+        # round is the same answer and was marked wrong (CPP-360). Only the
+        # ORDER is forgiven: a different factor, a different sign or the
+        # unfactorised expression all stay wrong, so no student is marked
+        # correct for work they did not do.
+        if any(is_reordered_product_correct(text_answer, c) for c in correct):
             return True
 
         # "Work out the number pattern rule and complete the pattern: 30, ___,
@@ -791,6 +879,15 @@ class Question(models.Model):
         ]
         if texts:
             return ' or '.join(texts)
+
+        # A column sum and a long division are graded from their own numbers
+        # and so may carry no answer row at all. Working the answer out is what
+        # the grader does anyway; without this the student who got one wrong
+        # was shown a blank where the answer should be.
+        from maths.column_grading import self_graded_answer_text
+        computed = self_graded_answer_text(self)
+        if computed:
+            return computed
 
         # "Create your own pattern" questions have no stored answer because
         # there is no single right one. Showing the student a blank where the
@@ -1671,6 +1768,18 @@ class StudentAnswer(models.Model):
     class Meta:
         unique_together = ("student", "question", "attempt_id")
         ordering = ['-answered_at']
+        indexes = [
+            # The wrong-answer leaderboard (maths.question_difficulty) groups
+            # the whole store by question and counts how many of each are
+            # wrong. The unique_together index leads with `student`, so that
+            # GROUP BY had nothing to walk and read every row in the table.
+            models.Index(fields=['question', 'is_correct'],
+                         name='maths_sa_question_correct_idx'),
+            # For a question somebody has reviewed, only the answers given
+            # since that review count — a range scan on this pair.
+            models.Index(fields=['question', 'answered_at'],
+                         name='maths_sa_question_when_idx'),
+        ]
 
     def __str__(self):
         return f"{self.student} - {self.question} - {'Correct' if self.is_correct else 'Incorrect'}"

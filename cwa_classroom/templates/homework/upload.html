@@ -85,6 +85,13 @@
           <p class="mt-2 text-xs text-blue-500">Processing typically takes 10–30 seconds depending on PDF length.</p>
         </div>
 
+        {% if page_quota.no_allowance %}
+        <a href="{% url 'ai_pages_required' %}?from=homework" data-testid="pdf-needs-module"
+           title="Reading a PDF with AI needs an AI module — find out what that means"
+           class="w-full py-3 bg-amber-500 text-white text-sm font-semibold rounded-xl hover:bg-amber-600 transition text-center block">
+          Extract Questions with AI
+        </a>
+        {% else %}
         <button type="submit" id="submit-btn"
                 class="w-full py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 active:scale-[0.99] transition flex items-center justify-center gap-2">
           <svg id="spinner" class="hidden animate-spin w-4 h-4 text-white" fill="none" viewBox="0 0 24 24">
@@ -93,6 +100,7 @@
           </svg>
           <span id="submit-label">Extract Questions with AI</span>
         </button>
+        {% endif %}
 
         <!-- Full-page overlay so nothing else is clickable while processing -->
         <div id="processing-overlay" class="hidden fixed inset-0 bg-black/30 z-50 flex flex-col items-center justify-center gap-4">

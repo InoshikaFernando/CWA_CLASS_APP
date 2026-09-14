@@ -19,6 +19,8 @@ from classroom.models import (
     ProgressCriteria, ProgressRecord,
     School, SchoolStudent, SchoolTeacher,
 )
+from billing.mixins import ModuleRequiredMixin
+from billing.models import ModuleSubscription
 from classroom.views import RoleRequiredMixin
 from classroom.views_teacher import _user_can_access_classroom, _is_admin_viewer
 from classroom.notifications import create_notification
@@ -39,7 +41,8 @@ def _get_teacher_classes(user, school):
 
 
 
-class SessionAttendanceView(RoleRequiredMixin, View):
+class SessionAttendanceView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -392,7 +395,8 @@ class SessionAttendanceView(RoleRequiredMixin, View):
 # 7. TeacherSelfAttendanceView
 # ---------------------------------------------------------------------------
 
-class TeacherSelfAttendanceView(RoleRequiredMixin, View):
+class TeacherSelfAttendanceView(RoleRequiredMixin, ModuleRequiredMixin, View):
+    required_module = ModuleSubscription.MODULE_TEACHERS_ATTENDANCE
     required_roles = [Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER]
 
     def post(self, request, session_id):
@@ -444,8 +448,9 @@ class TeacherSelfAttendanceView(RoleRequiredMixin, View):
 # 8. Student Attendance Approval Views
 # ---------------------------------------------------------------------------
 
-class StudentAttendanceApprovalListView(RoleRequiredMixin, View):
+class StudentAttendanceApprovalListView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """List self-reported student attendance records pending teacher approval."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -489,8 +494,9 @@ class StudentAttendanceApprovalListView(RoleRequiredMixin, View):
         })
 
 
-class StudentAttendanceApproveView(RoleRequiredMixin, View):
+class StudentAttendanceApproveView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Approve a single self-reported student attendance record."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -528,8 +534,9 @@ class StudentAttendanceApproveView(RoleRequiredMixin, View):
         return redirect('attendance_approvals')
 
 
-class StudentAttendanceRejectView(RoleRequiredMixin, View):
+class StudentAttendanceRejectView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Reject (delete) a self-reported student attendance record so they can re-mark."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -565,8 +572,9 @@ class StudentAttendanceRejectView(RoleRequiredMixin, View):
         return redirect('attendance_approvals')
 
 
-class StudentAttendanceBulkApproveView(RoleRequiredMixin, View):
+class StudentAttendanceBulkApproveView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Bulk approve all pending self-reported records for a session."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -612,8 +620,9 @@ class StudentAttendanceBulkApproveView(RoleRequiredMixin, View):
 # 11. StartSessionView
 # ---------------------------------------------------------------------------
 
-class StartSessionView(RoleRequiredMixin, View):
+class StartSessionView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """One-click: create today's session and go to attendance marking."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -671,8 +680,9 @@ class StartSessionView(RoleRequiredMixin, View):
 # 11b. DeleteSessionView
 # ---------------------------------------------------------------------------
 
-class DeleteSessionView(RoleRequiredMixin, View):
+class DeleteSessionView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Delete a session and all associated attendance/progress records."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -715,8 +725,9 @@ class DeleteSessionView(RoleRequiredMixin, View):
 # 12. CreateSessionView
 # ---------------------------------------------------------------------------
 
-class CreateSessionView(RoleRequiredMixin, View):
+class CreateSessionView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Manual session creation form for specific dates/times."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -803,8 +814,9 @@ class CreateSessionView(RoleRequiredMixin, View):
 # 13. CompleteSessionView
 # ---------------------------------------------------------------------------
 
-class CompleteSessionView(RoleRequiredMixin, View):
+class CompleteSessionView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Mark a session as completed."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -841,8 +853,9 @@ class CompleteSessionView(RoleRequiredMixin, View):
 # 14. CancelSessionView
 # ---------------------------------------------------------------------------
 
-class CancelSessionView(RoleRequiredMixin, View):
+class CancelSessionView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Cancel a scheduled session."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -881,8 +894,9 @@ class CancelSessionView(RoleRequiredMixin, View):
 # 15. Absence Token Approval Views (TC-07, TC-08)
 # ---------------------------------------------------------------------------
 
-class AbsenceTokenApprovalListView(RoleRequiredMixin, View):
+class AbsenceTokenApprovalListView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """List pending absence tokens for the teacher's classes."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -915,8 +929,9 @@ class AbsenceTokenApprovalListView(RoleRequiredMixin, View):
         })
 
 
-class AbsenceTokenApproveView(RoleRequiredMixin, View):
+class AbsenceTokenApproveView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Approve a pending absence token, optionally setting an expiry."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,
@@ -971,8 +986,9 @@ class AbsenceTokenApproveView(RoleRequiredMixin, View):
         return redirect('absence_token_approvals')
 
 
-class AbsenceTokenRejectView(RoleRequiredMixin, View):
+class AbsenceTokenRejectView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """Reject a pending absence token."""
+    required_module = ModuleSubscription.MODULE_STUDENTS_ATTENDANCE
     required_roles = [
         Role.SENIOR_TEACHER, Role.TEACHER, Role.JUNIOR_TEACHER,
         Role.HEAD_OF_DEPARTMENT, Role.HEAD_OF_INSTITUTE,

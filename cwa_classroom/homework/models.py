@@ -576,6 +576,16 @@ class HomeworkDraft(models.Model):
         help_text='Flat map of answer form field name -> saved value.',
     )
     time_taken_seconds = models.PositiveIntegerField(default=0)
+    art_picture_key = models.CharField(
+        max_length=40, blank=True, default='',
+        help_text=(
+            'Which classroom.progress_art picture this student is drawing as '
+            'they work through this homework. Stored rather than re-derived so '
+            'a paper resumed days later continues the SAME drawing, even if '
+            'the picture library has gained or lost entries meanwhile. How much '
+            'of it is drawn is NOT stored — that is counted from answers_data.'
+        ),
+    )
     updated_at = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
