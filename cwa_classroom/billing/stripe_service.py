@@ -736,20 +736,175 @@ def ai_intro_coupon_id():
             f'{ai_tiers.INTRO_DISCOUNT_MONTHS}m')
 
 
-def _ai_intro_products():
-    """Stripe product ids for the AI import tiers.
+def stripe_product_ids_for(price_ids):
+    """The Stripe product each of these prices belongs to.
 
-    ``sync_module_to_stripe`` creates products at a deterministic id, so these
-    are derivable without a round trip.
+    Asked of Stripe rather than assumed. The deterministic ``module_<slug>``
+    id is only correct for products ``sync_module_to_stripe`` created;
+    ``sync_stripe_prices`` creates products with generated ``prod_…`` ids, and
+    production holds both kinds. Guessing produced ids that do not exist, and
+    a coupon scoped to a non-existent product is rejected outright by Stripe —
+    which is why the AI intro coupon could never be created there.
+
+    Unreadable prices are skipped rather than raising: a scope built from the
+    products we could confirm is narrower than intended, never wider, and
+    wider is the dangerous direction for a discount.
     """
+    _ensure_stripe_key()
+    products = []
+    for price_id in price_ids:
+        if not price_id:
+            continue
+        try:
+            price = stripe.Price.retrieve(price_id)
+        except stripe.error.StripeError as e:
+            logger.warning('Could not read price %s while building a coupon '
+                           'scope: %s', price_id, e)
+            continue
+        product = _product_id_of(price)
+        if product and product not in products:
+            products.append(product)
+    return products
+
+
+def _product_id_of(price):
+    """The product id on a price, however the object hands it over.
+
+    A Stripe object answers to both attribute and key access and ``product``
+    is a string unless expanded, so read it without assuming either.
+    """
+    product = (price.get('product') if isinstance(price, dict)
+               else getattr(price, 'product', None))
+    if isinstance(product, str) or product is None:
+        return product
+    return (product.get('id') if isinstance(product, dict)
+            else getattr(product, 'id', None))
+
+
+def _ai_intro_products():
+    """Stripe product ids for the AI import tiers."""
     from billing.models import ModuleProduct
     from billing import ai_tiers
 
-    return [
-        f'module_{slug}' for slug in ModuleProduct.objects
-        .filter(module__startswith=ai_tiers.MODULE_PREFIX)
-        .values_list('module', flat=True)
-    ]
+    return stripe_product_ids_for(
+        ModuleProduct.objects
+        .filter(module__startswith=ai_tiers.MODULE_PREFIX, is_active=True)
+        .values_list('stripe_price_id', flat=True)
+    )
+
+
+def plan_product_ids():
+    """Stripe product ids for the institute plans.
+
+    The scope for an institute discount code: an early-bird deal on "the
+    subscription" means the plan line, not every add-on module the school
+    later buys.
+    """
+    from billing.models import InstitutePlan
+
+    return stripe_product_ids_for(
+        InstitutePlan.objects.filter(is_active=True)
+        .values_list('stripe_price_id', flat=True)
+    )
+
+
+def _coupon_scope(coupon):
+    """The set of product ids a coupon applies to, or None for 'everything'."""
+    applies_to = coupon.get('applies_to') if isinstance(coupon, dict) else getattr(coupon, 'applies_to', None)
+    if not applies_to:
+        return None
+    products = (applies_to.get('products') if isinstance(applies_to, dict)
+                else getattr(applies_to, 'products', None))
+    return set(products or []) or None
+
+
+def subscription_discount_coupons(subscription):
+    """Every coupon currently discounting this subscription.
+
+    Reads the ``discounts`` array, falling back to the single ``discount``
+    field for older API versions. A subscription can carry more than one, and
+    the code that assumed otherwise is what made these mutually exclusive.
+    """
+    coupons = []
+    discounts = (subscription.get('discounts') if isinstance(subscription, dict)
+                 else getattr(subscription, 'discounts', None)) or []
+    for discount in discounts:
+        coupon = (discount.get('coupon') if isinstance(discount, dict)
+                  else getattr(discount, 'coupon', None))
+        if coupon:
+            coupons.append(coupon)
+    if not coupons:
+        single = (subscription.get('discount') if isinstance(subscription, dict)
+                  else getattr(subscription, 'discount', None))
+        coupon = ((single.get('coupon') if isinstance(single, dict)
+                   else getattr(single, 'coupon', None)) if single else None)
+        if coupon:
+            coupons.append(coupon)
+    return coupons
+
+
+def add_subscription_discount(subscription_id, coupon_id, new_scope):
+    """Add a coupon ALONGSIDE whatever the subscription already carries.
+
+    Returns ``(added, error)``.
+
+    Stripe does not police overlap: two subscription-level discounts that both
+    reach the same line are applied in sequence, so two 50% coupons take 75%
+    off, not 50%. Nothing would report that — it looks like a working discount.
+    So overlap is refused here, and the only safe arrangement is coupons whose
+    product scopes are disjoint.
+
+    An UNSCOPED coupon overlaps everything by definition, which is why an
+    unscoped EARLYBIRD blocks every other discount rather than sitting beside
+    it. The remedy is to scope it, not to stack on it.
+    """
+    _ensure_stripe_key()
+    try:
+        subscription = stripe.Subscription.retrieve(
+            subscription_id, expand=['discounts.coupon'],
+        )
+    except stripe.error.StripeError as e:
+        logger.exception('Could not read subscription %s to add a discount',
+                         subscription_id)
+        return False, str(e)
+
+    existing = subscription_discount_coupons(subscription)
+    existing_ids = [c.get('id') if isinstance(c, dict) else getattr(c, 'id', None)
+                    for c in existing]
+    if coupon_id in existing_ids:
+        return True, None  # already there — adding twice would stack it
+
+    for coupon in existing:
+        scope = _coupon_scope(coupon)
+        cid = coupon.get('id') if isinstance(coupon, dict) else getattr(coupon, 'id', None)
+        if scope is None:
+            return False, (
+                f'This subscription carries {cid}, which discounts everything, '
+                f'so a second discount would stack on top of it. Scope {cid} to '
+                f'the products it is meant for before adding another.'
+            )
+        if new_scope is None:
+            return False, (
+                f'An unscoped discount cannot be added beside {cid} — it would '
+                f'discount {cid}\'s products a second time.'
+            )
+        clash = scope & new_scope
+        if clash:
+            return False, (
+                f'{cid} already discounts {", ".join(sorted(clash))}, so adding '
+                f'this one would discount the same line twice.'
+            )
+
+    try:
+        stripe.Subscription.modify(
+            subscription_id,
+            discounts=[{'coupon': c} for c in existing_ids + [coupon_id]],
+        )
+    except stripe.error.StripeError as e:
+        logger.exception('Failed to add coupon %s to subscription %s',
+                         coupon_id, subscription_id)
+        return False, str(e)
+    return True, None
 
 
 def ensure_ai_intro_coupon():
@@ -803,56 +958,48 @@ def apply_ai_intro_discount(school_subscription):
         return False, None
 
     _ensure_stripe_key()
-    coupon_id = ai_intro_coupon_id()
 
-    try:
-        subscription = stripe.Subscription.retrieve(
-            school_subscription.stripe_subscription_id,
-        )
-    except stripe.error.StripeError as e:
-        logger.exception('Could not read subscription %s to apply the AI intro '
-                         'discount', school_subscription.stripe_subscription_id)
-        return False, str(e)
-
-    existing = getattr(subscription, 'discount', None)
-    existing_coupon = getattr(existing, 'coupon', None) if existing else None
-    existing_id = getattr(existing_coupon, 'id', None)
-
-    if existing_id == coupon_id:
-        # Already on it — including after a tier switch, which keeps the
-        # original twelve-month clock rather than restarting it.
-        return True, None
-
-    if existing_id:
-        logger.warning(
-            'Subscription %s already carries coupon %s — not replacing it with '
-            'the AI intro discount.',
-            school_subscription.stripe_subscription_id, existing_id,
-        )
-        return False, (
-            'Your subscription already has a discount applied, so the AI '
-            'import introductory price was not added on top of it. Contact '
-            'support to have it applied.'
-        )
-
+    # The intro coupon is scoped to the AI import products, so it can sit
+    # beside another scoped discount rather than displacing it. This used to
+    # refuse outright whenever the subscription carried anything at all, which
+    # meant a school on an institute discount code could never receive the
+    # first-year price the plans page promises them.
     try:
         coupon_id = ensure_ai_intro_coupon()
-        if not coupon_id:
-            return False, ('The introductory discount is not set up in Stripe '
-                           'yet. Contact support before you are invoiced.')
-        stripe.Subscription.modify(
-            school_subscription.stripe_subscription_id, coupon=coupon_id,
-        )
     except stripe.error.StripeError as e:
-        logger.exception('Failed to apply the AI intro discount to %s',
-                         school_subscription.stripe_subscription_id)
+        logger.exception('Could not create the AI intro coupon')
         return False, str(e)
+    if not coupon_id:
+        return False, ('The introductory discount is not set up in Stripe '
+                       'yet. Contact support before you are invoiced.')
+
+    scope = set(_ai_intro_products()) or None
+    added, error = add_subscription_discount(
+        school_subscription.stripe_subscription_id, coupon_id, scope,
+    )
+    if not added:
+        logger.warning(
+            'AI intro discount not applied to %s: %s',
+            school_subscription.stripe_subscription_id, error,
+        )
+        return False, (
+            'The AI import introductory price was not applied: %s Contact '
+            'support before you are invoiced.' % error
+        )
 
     return True, None
 
 
 def _build_stripe_coupon_kwargs(code_obj):
-    """Build kwargs for stripe.Coupon.create from any discount/coupon model instance."""
+    """Build kwargs for stripe.Coupon.create from any discount/coupon model instance.
+
+    Raises ``ValueError`` when a scoped code has no products to scope to.
+    Falling back to an unscoped coupon would silently widen a discount from
+    "the plan" to "everything the school ever buys" — the failure this scope
+    exists to prevent, so it must never be the fallback.
+    """
+    from billing.models import DiscountCode
+
     kwargs = {
         'percent_off': float(code_obj.discount_percent),
         'duration': getattr(code_obj, 'duration', 'forever') or 'forever',
@@ -861,6 +1008,17 @@ def _build_stripe_coupon_kwargs(code_obj):
     }
     if kwargs['duration'] == 'repeating' and getattr(code_obj, 'duration_in_months', None):
         kwargs['duration_in_months'] = code_obj.duration_in_months
+
+    scope = getattr(code_obj, 'scope', DiscountCode.SCOPE_EVERYTHING)
+    if scope == DiscountCode.SCOPE_PLANS:
+        products = plan_product_ids()
+        if not products:
+            raise ValueError(
+                'No institute plans have a Stripe price, so a plan-scoped '
+                'coupon cannot be built. Run "sync_stripe_prices" first.'
+            )
+        kwargs['applies_to'] = {'products': products}
+        kwargs['metadata']['scope'] = scope
     return kwargs
 
 

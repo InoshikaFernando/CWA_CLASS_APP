@@ -143,6 +143,32 @@ class DiscountCode(StudentBasicGrantMixin, models.Model):
         'Package', blank=True, related_name='discount_codes',
         help_text='Packages this code applies to. Leave empty for all packages.',
     )
+    #: Which Stripe products the coupon may discount.
+    #:
+    #: 'everything' is how every code behaved before this existed, and it is
+    #: rarely what anyone meant. EARLYBIRD was created that way and took 50%
+    #: off an institute's plan, every add-on module, and every module they
+    #: bought afterwards — forever. It also blocked the AI import
+    #: introductory price, because two discounts reaching the same line would
+    #: compound, so the app refused to add a second one at all.
+    #:
+    #: 'plans' is the shape an institute deal normally wants: a discount on
+    #: the subscription itself, leaving modules at list price and leaving room
+    #: for a module-scoped offer beside it.
+    SCOPE_EVERYTHING = 'everything'
+    SCOPE_PLANS = 'plans'
+    SCOPE_CHOICES = [
+        (SCOPE_EVERYTHING, 'Everything (plan + all modules)'),
+        (SCOPE_PLANS, 'Institute plans only'),
+    ]
+    scope = models.CharField(
+        max_length=20, choices=SCOPE_CHOICES, default=SCOPE_EVERYTHING,
+        help_text=(
+            'Which products this discount may apply to. "Everything" also '
+            'prevents any other discount being added alongside it, since two '
+            'discounts on one line compound.'
+        ),
+    )
     grants_student_basic = models.BooleanField(
         default=False,
         help_text=(

@@ -157,8 +157,22 @@ class ModuleEnforcementMiddleware:
         """
         try:
             from audit.services import log_event
+            from billing.entitlements import get_school_for_user
+
+            # The school, not just the user. Shadow mode's whole deliverable is
+            # "which paying schools is the registry wrong about" — and without
+            # this every row read "(no school)", so sixteen recorded denials
+            # could say which modules would break and not who for. Resolved
+            # here rather than left to be reconstructed later, because the
+            # user's roles can change before anyone reads the log.
+            try:
+                school = get_school_for_user(request.user)
+            except Exception:  # noqa: BLE001 — attribution is not worth a 500
+                school = None
+
             log_event(
                 user=request.user,
+                school=school,
                 category='entitlement',
                 action='module_access_denied' if blocked else 'module_access_would_deny',
                 result='blocked' if blocked else 'allowed',
