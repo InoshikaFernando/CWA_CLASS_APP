@@ -192,3 +192,71 @@ def test_reviewed_takes_it_off_the_list(
     review = QuestionReview.objects.get(question=badly_answered_question)
     assert review.verdict == QuestionReview.VERDICT_CORRECT
     assert review.reviewed_by == superuser
+
+
+def test_a_verdict_given_by_mistake_can_be_undone_from_the_page(
+    page, live_server, superuser, subject, level, topic, badly_answered_question,
+):
+    """The way back from one click on the wrong row.
+
+    Marking a question "Reviewed — correct" takes it off this list, which is
+    the point of the verdict; but it also takes it off the only surface that
+    showed it, so before the undo strip a misclick had nowhere to be seen and
+    no way back. Undo must delete the verdict, not write a second one over it:
+    a "needs fixing" verdict settles the past answers just the same and would
+    leave the question off the list — the mistake made permanent.
+    """
+    from maths.models import QuestionReview
+
+    _open_health_page(page, live_server, superuser)
+    page.locator(f"#wrong-rate-row-{badly_answered_question.id}"
+                 ).locator("[data-testid='wrong-rate-reviewed']").click()
+
+    # Gone from the list, but listed as just reviewed — with the question text,
+    # so it can be re-read without hunting for it.
+    strip = page.locator(f"#recent-review-{badly_answered_question.id}")
+    expect(strip).to_be_visible()
+    expect(strip).to_contain_text("Write 666 in expanded form")
+
+    strip.locator("[data-testid='recent-review-undo']").click()
+
+    expect(page.locator("[data-testid='wrong-rate-notice']")).to_contain_text(
+        "Undone")
+    # Back on the list with every answer counting again, and the verdict gone
+    # rather than replaced.
+    expect(page.locator(
+        f"#wrong-rate-row-{badly_answered_question.id}")).to_be_visible()
+    assert not QuestionReview.objects.filter(
+        question=badly_answered_question).exists()
+
+
+def test_the_row_shows_what_the_children_actually_answered(
+    page, live_server, superuser, subject, level, topic, badly_answered_question,
+):
+    """The half of the diagnosis the percentage cannot give.
+
+    Six children were marked wrong. That they all picked the SAME option is
+    what says the answer key is at fault rather than the children, and it is
+    unreadable from "100%" alone.
+    """
+    _open_health_page(page, live_server, superuser)
+
+    row = page.locator(f"#wrong-rate-row-{badly_answered_question.id}")
+    given = row.locator("[data-testid='wrong-rate-given']")
+    expect(given).to_contain_text("600 + 60 + 6")
+    expect(given).to_contain_text("×6")
+    # And what it would have accepted instead, side by side with it.
+    expect(row.locator("[data-testid='wrong-rate-expected']")).to_contain_text(
+        "6 + 6 + 6")
+
+
+def test_the_bands_count_every_ranked_question_not_just_the_ten_listed(
+    page, live_server, superuser, subject, level, topic, badly_answered_question,
+):
+    _open_health_page(page, live_server, superuser)
+
+    bands = page.locator("[data-testid='wrong-rate-bands']")
+    expect(bands).to_be_visible()
+    expect(bands).to_contain_text("Always wrong")
+    expect(page.locator("[data-testid='wrong-rate-ranked-total']")
+           ).to_have_text("1")
