@@ -1,6 +1,6 @@
 {% comment %}
 Maths progress accordions partial — included by student/dashboard.html.
-Expects context vars: progress_grid, bf_grid, np_grid, tt_results
+Expects context vars: progress_grid, bf_grid, np_grid, tt_results, tt_refresh_due
 {% endcomment %}
 
 <!-- ── Year Level Progress (accordion) ─────────────────────────────────── -->
@@ -148,14 +148,33 @@ Expects context vars: progress_grid, bf_grid, np_grid, tt_results
     </svg>
   </summary>
 
-  <div class="p-4">
+  <div class="p-4 space-y-3">
+    {% comment %}
+    A colour on this wall comes from the student's BEST attempt, which never
+    expires — so without a date beside it, a table mastered last term reads as
+    mastered today. The freshness chips below come from the LATEST attempt
+    instead. Nothing is deleted or hidden: the result still stands, it is just
+    labelled as needing a refresh. See maths/times_table_freshness.py.
+    {% endcomment %}
+    {% if tt_refresh_due %}
+    <div class="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+      <span aria-hidden="true">⏳</span>
+      <p class="text-xs text-amber-800">
+        <span class="font-bold">{{ tt_refresh_due|length }} table{{ tt_refresh_due|pluralize }} need{{ tt_refresh_due|length|pluralize:"s," }} a refresh</span>
+        — you haven't practised
+        {% for t in tt_refresh_due %}{% if not forloop.first %}{% if forloop.last %} or {% else %}, {% endif %}{% endif %}{{ t }}×{% endfor %}
+        for a while. Your scores still count; have another go to show they're still true.
+      </p>
+    </div>
+    {% endif %}
+
     <div class="flex flex-wrap gap-3">
       {% for tt in tt_results %}
-      <div class="rounded-xl border border-cyan-200 overflow-hidden min-w-[4.5rem] bg-white shadow-sm">
-        <div class="text-center py-1.5 px-2 font-bold text-xs border-b border-cyan-200 bg-cyan-50 text-cyan-700">
-          {{ tt.table }}×
+      <div class="rounded-xl border overflow-hidden min-w-[4.5rem] bg-white shadow-sm {% if tt.needs_refresh %}border-amber-300{% else %}border-cyan-200{% endif %}">
+        <div class="text-center py-1.5 px-2 font-bold text-xs border-b {% if tt.needs_refresh %}border-amber-300 bg-amber-50 text-amber-700{% else %}border-cyan-200 bg-cyan-50 text-cyan-700{% endif %}">
+          {{ tt.table }}×{% if tt.needs_refresh %} <span title="Needs a refresh">⏳</span>{% endif %}
         </div>
-        <div class="flex items-center justify-between px-2 py-1.5 border-b border-black/10 {{ tt.mul_colour }}">
+        <div class="flex items-center justify-between px-2 py-1.5 border-b border-black/10 {{ tt.mul_colour }} {{ tt.mul_fresh.wash }}">
           <span class="text-xs font-semibold opacity-80">×</span>
           {% with r=tt.mul|default:tt.legacy %}
           {% if r %}
@@ -163,19 +182,25 @@ Expects context vars: progress_grid, bf_grid, np_grid, tt_results
             <div class="text-xs font-bold">{{ r.percentage }}%</div>
             <div class="text-xs opacity-70">{{ r.points|floatformat:0 }}pts</div>
             <div class="text-xs opacity-60">⏱{{ r.time_taken_seconds }}s</div>
+            {% if tt.mul_fresh.ago %}
+            <div class="text-xs opacity-60" title="{{ tt.mul_fresh.label|default:'Last practised' }}">{{ tt.mul_fresh.ago }} ago</div>
+            {% endif %}
           </div>
           {% else %}
           <span class="text-xs opacity-40">—</span>
           {% endif %}
           {% endwith %}
         </div>
-        <div class="flex items-center justify-between px-2 py-1.5 {{ tt.div_colour }}">
+        <div class="flex items-center justify-between px-2 py-1.5 {{ tt.div_colour }} {{ tt.div_fresh.wash }}">
           <span class="text-xs font-semibold opacity-80">÷</span>
           {% if tt.div %}
           <div class="text-right">
             <div class="text-xs font-bold">{{ tt.div.percentage }}%</div>
             <div class="text-xs opacity-70">{{ tt.div.points|floatformat:0 }}pts</div>
             <div class="text-xs opacity-60">⏱{{ tt.div.time_taken_seconds }}s</div>
+            {% if tt.div_fresh.ago %}
+            <div class="text-xs opacity-60" title="{{ tt.div_fresh.label|default:'Last practised' }}">{{ tt.div_fresh.ago }} ago</div>
+            {% endif %}
           </div>
           {% else %}
           <span class="text-xs opacity-40">—</span>

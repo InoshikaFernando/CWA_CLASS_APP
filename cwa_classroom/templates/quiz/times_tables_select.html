@@ -22,26 +22,65 @@
     In Order earns yellow/orange only. Shuffle is the real test — green tiers (light → dark) are unlocked here.
   </p>
 
+  {% comment %}
+  A best score never expires, so a tile that shows only the score says a table
+  practised last term is still known today. The "needs a refresh" nudges come
+  from the LAST attempt instead — nothing is deleted and no score is hidden,
+  the student is just told which ones are getting old. See
+  maths/times_table_freshness.py.
+  {% endcomment %}
+  {% if refresh_due %}
+  <div class="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+    <span aria-hidden="true">⏳</span>
+    <p class="text-sm text-amber-800">
+      <span class="font-bold">Time to revisit
+        {% for t in refresh_due %}{% if not forloop.first %}{% if forloop.last %} and {% else %}, {% endif %}{% endif %}{{ t }}×{% endfor %}</span>
+      — you haven't practised {{ refresh_due|pluralize:"it,them" }} for a while. Your best scores
+      still count; have another go to show they're still true.
+    </p>
+  </div>
+  {% endif %}
+
   <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
-    {% for t in all_tables %}
+    {% for tile in tiles %}
     <div class="bg-white rounded-2xl border shadow-sm p-4 text-center
-                {% if t in available_tables %}border-slate-200 hover:shadow-md hover:border-primary{% else %}border-gray-100 opacity-40{% endif %}">
-      <p class="font-display text-2xl text-primary mb-3">{{ t }}×</p>
-      {% if t in available_tables %}
+                {% if not tile.unlocked %}border-gray-100 opacity-40{% elif tile.needs_refresh %}border-amber-300 hover:shadow-md{% else %}border-slate-200 hover:shadow-md hover:border-primary{% endif %}">
+      <p class="font-display text-2xl text-primary mb-1">{{ tile.table }}×</p>
+
+      {% if tile.unlocked %}
+      <!-- How it went last time. This tile used to show nothing at all, which
+           left the freshness nudge below with no result to qualify. -->
+      <div class="text-xs mb-2 space-y-0.5 {{ tile.wash }}">
+        {% if tile.mul_pct != None or tile.div_pct != None %}
+        <p class="text-gray-600">
+          {% if tile.mul_pct != None %}<span class="font-semibold">× {{ tile.mul_pct }}%</span>{% endif %}
+          {% if tile.mul_pct != None and tile.div_pct != None %}<span class="text-gray-300"> | </span>{% endif %}
+          {% if tile.div_pct != None %}<span class="font-semibold">÷ {{ tile.div_pct }}%</span>{% endif %}
+        </p>
+        {% if tile.ago %}<p class="text-gray-400">{{ tile.ago }} ago</p>{% endif %}
+        {% else %}
+        <p class="text-gray-300">Not tried yet</p>
+        {% endif %}
+      </div>
+
+      {% if tile.needs_refresh %}
+      <p class="text-xs font-semibold text-amber-700 mb-2">⏳ Needs a refresh</p>
+      {% endif %}
+
       <div class="flex flex-col gap-2">
-        <a href="{% url 'multiplication_quiz' level_number=year|default:4 table=t %}"
+        <a href="{% url 'multiplication_quiz' level_number=year|default:4 table=tile.table %}"
            class="tt-link text-xs bg-primary hover:bg-primary-dark text-white font-semibold rounded-lg px-2 py-1.5 transition"
-           data-base-url="{% url 'multiplication_quiz' level_number=year|default:4 table=t %}">
+           data-base-url="{% url 'multiplication_quiz' level_number=year|default:4 table=tile.table %}">
           × Multiply
         </a>
-        <a href="{% url 'division_quiz' level_number=year|default:4 table=t %}"
+        <a href="{% url 'division_quiz' level_number=year|default:4 table=tile.table %}"
            class="tt-link text-xs bg-white border border-primary text-primary hover:bg-primary-light font-semibold rounded-lg px-2 py-1.5 transition"
-           data-base-url="{% url 'division_quiz' level_number=year|default:4 table=t %}">
+           data-base-url="{% url 'division_quiz' level_number=year|default:4 table=tile.table %}">
           ÷ Divide
         </a>
       </div>
       {% else %}
-        <p class="text-xs text-gray-300">🔒 Locked</p>
+        <p class="text-xs text-gray-300 mt-2">🔒 Locked</p>
       {% endif %}
     </div>
     {% endfor %}

@@ -18,6 +18,19 @@ from django.core.management.base import BaseCommand
 from billing.models import InstitutePlan, ModuleProduct, Package
 
 
+#: Name fragments for the six modules whose Stripe products were created
+#: before ``module_slug`` metadata existed. Ordered: the AI import entries must
+#: be tested before any shorter fragment that could also match them.
+NAME_KEYWORD_SLUGS = (
+    ('teachers attendance', 'teachers_attendance'),
+    ('students attendance', 'students_attendance'),
+    ('progress report', 'student_progress_reports'),
+    ('ai question import - starter', 'ai_import_starter'),
+    ('ai question import - professional', 'ai_import_professional'),
+    ('ai question import - enterprise', 'ai_import_enterprise'),
+)
+
+
 class Command(BaseCommand):
     help = 'Sync Stripe Price IDs into InstitutePlan and Package records by matching price amounts.'
 
@@ -243,8 +256,13 @@ class Command(BaseCommand):
         updated_modules = 0
         skipped_modules = 0
 
-        # Build lookup by product metadata module_slug, or by name keyword
+        # Build lookup by product metadata module_slug, or by name keyword.
+        # ``module_price_ids`` keeps EVERY active price seen for a module, not
+        # just the one chosen as the match, so the loop below can tell "this
+        # row already points at a valid price for this module" from "this row
+        # points at something else".
         stripe_module_map = {}
+        module_price_ids = {}
         for price in prices:
             if not (price.recurring and price.recurring.interval == 'month'):
                 continue
@@ -254,41 +272,62 @@ class Command(BaseCommand):
 
             # Match by metadata first
             if metadata.get('module_slug'):
-                stripe_module_map[metadata['module_slug']] = {
+                # setdefault, NOT assignment. One product can carry several
+                # active monthly prices — repricing a module creates a second
+                # price on the same product, so both share this module_slug.
+                # A plain assignment let the last price Stripe happened to
+                # return win, which could silently repoint a module back to
+                # the price it was just moved off. See the current-price guard
+                # in the module loop, which is the real fix; this only stops
+                # the *order* of Stripe's response deciding anything.
+                stripe_module_map.setdefault(metadata['module_slug'], {
                     'price_id': price.id,
                     'product_name': product_name,
-                }
-            # Fallback: match by name keyword
+                })
+                module_price_ids.setdefault(
+                    metadata['module_slug'], set()).add(price.id)
+            # Fallback: match by name keyword. Only covers the six modules
+            # that predate the module_slug metadata — anything newer arrives
+            # stamped and takes the branch above.
             else:
                 name_lower = product_name.lower()
-                if 'teachers attendance' in name_lower:
-                    stripe_module_map.setdefault('teachers_attendance', {
+                slug = None
+                for keyword, candidate in NAME_KEYWORD_SLUGS:
+                    if keyword in name_lower:
+                        slug = candidate
+                        break
+                if slug:
+                    stripe_module_map.setdefault(slug, {
                         'price_id': price.id, 'product_name': product_name,
                     })
-                elif 'students attendance' in name_lower:
-                    stripe_module_map.setdefault('students_attendance', {
-                        'price_id': price.id, 'product_name': product_name,
-                    })
-                elif 'progress report' in name_lower:
-                    stripe_module_map.setdefault('student_progress_reports', {
-                        'price_id': price.id, 'product_name': product_name,
-                    })
-                elif 'ai question import - starter' in name_lower:
-                    stripe_module_map.setdefault('ai_import_starter', {
-                        'price_id': price.id, 'product_name': product_name,
-                    })
-                elif 'ai question import - professional' in name_lower:
-                    stripe_module_map.setdefault('ai_import_professional', {
-                        'price_id': price.id, 'product_name': product_name,
-                    })
-                elif 'ai question import - enterprise' in name_lower:
-                    stripe_module_map.setdefault('ai_import_enterprise', {
-                        'price_id': price.id, 'product_name': product_name,
-                    })
+                    module_price_ids.setdefault(slug, set()).add(price.id)
 
         self.stdout.write(self.style.MIGRATE_HEADING('\n=== Module Products ==='))
         for mp in module_products:
             match = stripe_module_map.get(mp.module)
+
+            # A row that already points at a live price FOR THIS MODULE is
+            # finished, whichever price the matcher happened to pick.
+            #
+            # Without this, repricing a module was undone by the next sync. A
+            # reprice creates a second price on the same Stripe product, so the
+            # product's module_slug now names two active prices, and the
+            # matcher would choose between them by whatever order Stripe
+            # returned — repointing a $10 module back to the $9 price it had
+            # just been moved off, reporting success, and charging new
+            # subscribers the old amount. Nothing would have flagged it: the
+            # health check compares the row against the price the row names,
+            # and those would agree.
+            #
+            # Changing a price is reprice_module's job. This command exists to
+            # find a price for a row that has none.
+            if mp.stripe_price_id and mp.stripe_price_id in module_price_ids.get(mp.module, set()):
+                self.stdout.write(
+                    f"  {mp.name} -- already synced: {mp.stripe_price_id}"
+                )
+                skipped_modules += 1
+                continue
+
             if match:
                 if mp.stripe_price_id == match['price_id']:
                     self.stdout.write(

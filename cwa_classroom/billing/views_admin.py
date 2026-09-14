@@ -993,6 +993,8 @@ class ModuleProductEditView(SuperuserRequiredMixin, View):
                 'errors': errors,
             })
 
+        price_changed = price_val != module.price and bool(module.stripe_price_id)
+
         module.name = name
         module.price = price_val
         module.save()
@@ -1004,6 +1006,20 @@ class ModuleProductEditView(SuperuserRequiredMixin, View):
             request=request,
         )
         messages.success(request, f'Module "{module.name}" updated.')
+
+        # Saying "updated" and stopping is how three modules displayed $10 for
+        # months while Stripe billed $9. A Stripe Price is immutable: this form
+        # changes the number on every page in the app and nothing about what
+        # any card is charged, and nothing anywhere said so.
+        if price_changed:
+            messages.warning(
+                request,
+                f'Stripe still charges the old amount for "{module.name}" — a '
+                f'Stripe price cannot be edited. Click "Sync to Stripe" to '
+                f'create a price at {price_val} and charge new subscribers it. '
+                f'Schools already subscribed keep the old amount until they '
+                f'are moved (manage.py reprice_module --migrate-existing).',
+            )
         return redirect('billing_admin_module_list')
 
 

@@ -599,40 +599,110 @@ def sync_plan_to_stripe(plan):
     return price.id
 
 
-def sync_module_to_stripe(module_product):
+def _module_stripe_product(module_product):
+    """The Stripe Product this module already lives on, or a new one.
+
+    Looked up in the order that finds an EXISTING product first, because
+    creating a second one for a module that already has one is how the Stripe
+    catalogue ends up with two "Teachers Attendance" entries and a sync command
+    that cannot tell which is real:
+
+    1. The product behind the price the row currently names. This is the
+       authoritative answer whenever the module has ever been priced, and the
+       one ``reprice_module`` uses.
+    2. The deterministic id this function used to assume, ``module_<slug>``,
+       which is right only for products this function created.
+    3. Create one — stamped with ``module_slug``, the key
+       ``sync_stripe_prices`` matches on. The old metadata used ``module``,
+       which that matcher does not read, so products made here were invisible
+       to it and fell through to a six-name keyword fallback.
     """
-    Create or update a Stripe Product + Price for a ModuleProduct.
+    if module_product.stripe_price_id:
+        try:
+            existing = stripe.Price.retrieve(module_product.stripe_price_id)
+            product_id = (existing.product if isinstance(existing.product, str)
+                          else existing.product.id)
+            return stripe.Product.modify(
+                product_id,
+                name=module_product.name,
+                active=module_product.is_active,
+            )
+        except stripe.error.StripeError as e:
+            logger.warning(
+                'Could not reach the product behind price %s for module %s '
+                '(%s) — falling back to a lookup by id.',
+                module_product.stripe_price_id, module_product.module, e,
+            )
+
+    legacy_id = f'module_{module_product.module}'
+    try:
+        stripe.Product.retrieve(legacy_id)
+        return stripe.Product.modify(
+            legacy_id,
+            name=module_product.name,
+            active=module_product.is_active,
+        )
+    except stripe.error.InvalidRequestError:
+        pass
+
+    return stripe.Product.create(
+        id=legacy_id,
+        name=module_product.name,
+        active=module_product.is_active,
+        metadata={
+            'module': module_product.module,
+            'module_slug': module_product.module,
+            'type': 'module',
+        },
+    )
+
+
+def sync_module_to_stripe(module_product):
+    """Point a ModuleProduct at a Stripe Price for its current amount.
+
+    Backs the super-admin "Sync to Stripe" button, so it is the one repricing
+    path a human can reach without a shell — and it must therefore behave the
+    same as ``manage.py reprice_module``: a new Price on the module's EXISTING
+    product, the row repointed, the superseded price archived.
+
     Returns the new stripe_price_id.
+
+    Note what it does not do, and cannot: schools already subscribed keep the
+    price their subscription item names. This changes what NEW subscribers pay.
+    Moving existing schools is a price rise for a paying customer and lives
+    behind ``reprice_module --migrate-existing``, which lists them first.
     """
     _ensure_stripe_key()
     if not _stripe_configured():
         raise ValueError('Stripe is not configured.')
 
-    product_id = f'module_{module_product.module}'
-
-    try:
-        product = stripe.Product.retrieve(product_id)
-        stripe.Product.modify(product_id, name=module_product.name, active=module_product.is_active)
-    except stripe.error.InvalidRequestError:  # Product does not exist — create it
-        product = stripe.Product.create(
-            id=product_id,
-            name=module_product.name,
-            active=module_product.is_active,
-            metadata={'module': module_product.module, 'type': 'module'},
-        )
+    product = _module_stripe_product(module_product)
 
     price = stripe.Price.create(
         product=product.id,
         unit_amount=int(module_product.price * 100),
         currency=settings.STRIPE_CURRENCY,
         recurring={'interval': 'month'},
+        metadata={'module_slug': module_product.module},
     )
 
-    if module_product.stripe_price_id and module_product.stripe_price_id != price.id:
+    # Archive the superseded price. Both prices sit on the same product and so
+    # answer to the same module_slug, and sync_stripe_prices only considers
+    # active prices — leaving the old one active gives the next sync two
+    # candidates for one module and a chance to repoint this row back to the
+    # amount it was just moved off. Archiving never stops an existing
+    # subscription item billing; it only prevents new use.
+    old_price_id = module_product.stripe_price_id
+    if old_price_id and old_price_id != price.id:
         try:
-            stripe.Price.modify(module_product.stripe_price_id, active=False)
+            stripe.Price.modify(old_price_id, active=False)
         except stripe.error.StripeError as e:
-            logger.warning('Stripe cleanup failed: %s', e)
+            logger.warning(
+                'Repriced module %s to %s but could not archive the old price '
+                '%s: %s. While it is active, sync_stripe_prices may repoint '
+                'this module back to it.',
+                module_product.module, price.id, old_price_id, e,
+            )
 
     module_product.stripe_price_id = price.id
     module_product.save(update_fields=['stripe_price_id'])

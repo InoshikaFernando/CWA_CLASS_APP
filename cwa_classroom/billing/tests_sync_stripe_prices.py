@@ -663,3 +663,114 @@ class SyncStripePricesCurrencyTests(TestCase):
         self._call('--create-missing')
 
         self.assertEqual(mock_stripe.Price.create.call_args.kwargs['currency'], 'usd')
+
+
+@override_settings(STRIPE_SECRET_KEY='sk_test_fake', STRIPE_CURRENCY='usd')
+class SyncDoesNotUndoARepriceTests(TestCase):
+    """A sync must never change what a module charges.
+
+    Repricing creates a second price on the SAME Stripe product, so that
+    product's ``module_slug`` now names two active monthly prices. The matcher
+    keyed on that slug with a plain assignment, so whichever price Stripe
+    returned last won — and a sync run after a reprice could repoint the module
+    back to the amount it had just been moved off, report it as synced, and
+    charge every new subscriber the old price.
+
+    Nothing would have caught it. The health check compares the row against the
+    price the row names, and after the repoint those agree perfectly.
+
+    Finding a price for a row that has none is this command's job. Changing one
+    is reprice_module's.
+    """
+
+    def _call(self, *args, **kwargs):
+        out, err = StringIO(), StringIO()
+        call_command('sync_stripe_prices', *args, stdout=out, stderr=err, **kwargs)
+        return out.getvalue(), err.getvalue()
+
+    def _two_prices_one_product(self):
+        """The state a reprice leaves behind: $9 and $10 on one product."""
+        meta = {'module_slug': 'teachers_attendance'}
+        return [
+            _stripe_price('price_new_1000', 1000, 'Teachers Attendance',
+                          recurring_interval='month', metadata=meta),
+            _stripe_price('price_old_900', 900, 'Teachers Attendance',
+                          recurring_interval='month', metadata=meta),
+        ]
+
+    @patch('billing.management.commands.sync_stripe_prices.stripe')
+    def test_a_repriced_module_is_left_on_its_new_price(self, mock_stripe):
+        module = _make_module(price='10.00')
+        ModuleProduct.objects.filter(pk=module.pk).update(
+            stripe_price_id='price_new_1000')
+        mock_stripe.Product.list.return_value = _stripe_list_response([])
+        mock_stripe.Price.list.return_value = _stripe_list_response(
+            self._two_prices_one_product())
+
+        self._call()
+
+        module.refresh_from_db()
+        self.assertEqual(module.stripe_price_id, 'price_new_1000')
+
+    @patch('billing.management.commands.sync_stripe_prices.stripe')
+    def test_it_holds_whichever_order_stripe_returns_them_in(self, mock_stripe):
+        """The original bug was decided by response order, so the guard has to
+        survive the order that used to break it."""
+        module = _make_module(price='10.00')
+        ModuleProduct.objects.filter(pk=module.pk).update(
+            stripe_price_id='price_new_1000')
+        mock_stripe.Product.list.return_value = _stripe_list_response([])
+        mock_stripe.Price.list.return_value = _stripe_list_response(
+            list(reversed(self._two_prices_one_product())))
+
+        self._call()
+
+        module.refresh_from_db()
+        self.assertEqual(module.stripe_price_id, 'price_new_1000')
+
+    @patch('billing.management.commands.sync_stripe_prices.stripe')
+    def test_a_row_with_no_price_is_still_matched(self, mock_stripe):
+        """The guard must not stop this command doing the job it exists for."""
+        module = _make_module(price='10.00')
+        mock_stripe.Product.list.return_value = _stripe_list_response([])
+        mock_stripe.Price.list.return_value = _stripe_list_response(
+            self._two_prices_one_product())
+
+        self._call()
+
+        module.refresh_from_db()
+        self.assertIn(module.stripe_price_id, {'price_new_1000', 'price_old_900'})
+
+    @patch('billing.management.commands.sync_stripe_prices.stripe')
+    def test_a_row_pointing_at_another_module_price_is_still_corrected(self, mock_stripe):
+        """The guard is "a live price for THIS module", not "any price id"."""
+        module = _make_module(price='10.00')
+        ModuleProduct.objects.filter(pk=module.pk).update(
+            stripe_price_id='price_belonging_to_something_else')
+        mock_stripe.Product.list.return_value = _stripe_list_response([])
+        mock_stripe.Price.list.return_value = _stripe_list_response(
+            self._two_prices_one_product())
+
+        self._call()
+
+        module.refresh_from_db()
+        self.assertIn(module.stripe_price_id, {'price_new_1000', 'price_old_900'})
+
+    @patch('billing.management.commands.sync_stripe_prices.stripe')
+    def test_an_archived_old_price_is_not_a_candidate_at_all(self, mock_stripe):
+        """Stripe is asked for active prices only, which is why reprice_module
+        archives the price it moves off — belt as well as braces."""
+        module = _make_module(price='10.00')
+        ModuleProduct.objects.filter(pk=module.pk).update(
+            stripe_price_id='price_new_1000')
+        mock_stripe.Product.list.return_value = _stripe_list_response([])
+        mock_stripe.Price.list.return_value = _stripe_list_response([
+            _stripe_price('price_new_1000', 1000, 'Teachers Attendance',
+                          recurring_interval='month',
+                          metadata={'module_slug': 'teachers_attendance'}),
+        ])
+
+        self._call()
+
+        module.refresh_from_db()
+        self.assertEqual(module.stripe_price_id, 'price_new_1000')

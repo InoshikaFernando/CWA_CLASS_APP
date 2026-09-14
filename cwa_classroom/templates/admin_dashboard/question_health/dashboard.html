@@ -29,6 +29,13 @@
   </div>
   {% endif %}
 
+  {% comment %}Rendered OUTSIDE the snapshot branch on purpose. This panel is
+  read live from the answer store, not from the nightly audit, so a bank whose
+  cron has never run still gets it — and the fault it reports (an answer key
+  that is quietly wrong) is exactly the one the audit below cannot see.
+  {% endcomment %}
+  {% include "admin_dashboard/question_health/_wrong_rate.html" %}
+
   {% if not latest %}
   <div class="px-4 py-8 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-sm">
     Nothing recorded yet. Run
@@ -188,4 +195,70 @@
   {% endif %}
 </div>
 </div>
+
+{% comment %}
+The two modals the leaderboard's buttons drive. Both are the Global Questions
+page's own — the same editor, the same student preview — reached here by id
+rather than reimplemented, so a question fixed from this page is fixed by
+exactly the code that fixes it there, audit entry, refusals, re-marking and
+all.
+{% endcomment %}
+<div id="edit-modal" class="fixed inset-0 z-50 hidden">
+  <div class="fixed inset-0 bg-black/40 transition-opacity" onclick="closeEditModal()"></div>
+  <div class="fixed inset-0 flex items-center justify-center p-4 pointer-events-none">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-y-auto pointer-events-auto">
+      <div id="edit-modal-content" class="p-6"></div>
+    </div>
+  </div>
+</div>
+
+{% comment %}The preview modal posts, and the leaderboard's buttons are not
+inside a form: this is the token its script finds. Placed after the edit modal
+— both are z-50, and a preview opened from the editor has to land on top of
+it.{% endcomment %}
+<div class="hidden">{% csrf_token %}</div>
+{% include "partials/_student_preview_modal.html" %}
+
+<script>
+function openQuestionEditor(questionId) {
+  var modal = document.getElementById('edit-modal');
+  var content = document.getElementById('edit-modal-content');
+  modal.classList.remove('hidden');
+  content.innerHTML = '<p class="py-12 text-center text-sm text-gray-400">Loading…</p>';
+  // ?regrade=1 arrives the tick box already ticked. One endpoint serves this
+  // page and the question bank, so this parameter is the only thing that tells
+  // them apart — and here re-marking IS the job: the question is on this list
+  // because children lost marks to it.
+  htmx.ajax('GET', '/admin-dashboard/global-questions/' + questionId + '/edit/?regrade=1',
+            {target: '#edit-modal-content', swap: 'innerHTML'});
+}
+
+function closeEditModal() {
+  document.getElementById('edit-modal').classList.add('hidden');
+}
+
+// The editor answers a successful save into the modal body (see
+// question_edit_saved.html). Close on that signal, then reload: the save may
+// have re-marked past answers, which changes the very rates this page ranks
+// by — leaving the old figures on screen would be the page contradicting the
+// save the reader just made.
+document.body.addEventListener('htmx:afterSwap', function (evt) {
+  var target = evt.detail.target;
+  var saved = (target && target.id === 'edit-modal-content')
+    ? target.querySelector('#edit-saved') : null;
+  if (!saved) { return; }
+  function done() {
+    closeEditModal();
+    window.location.reload();
+  }
+  // A save carrying a warning, or a report of marks given back, stays up long
+  // enough to be read — that report is the part nobody can see from the
+  // question itself. A bare "Saved." does not make the reader wait.
+  if (saved.hasAttribute('data-hold')) {
+    window.setTimeout(done, 3000);
+  } else {
+    done();
+  }
+});
+</script>
 {% endblock %}

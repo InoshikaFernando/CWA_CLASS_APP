@@ -1768,6 +1768,18 @@ class StudentAnswer(models.Model):
     class Meta:
         unique_together = ("student", "question", "attempt_id")
         ordering = ['-answered_at']
+        indexes = [
+            # The wrong-answer leaderboard (maths.question_difficulty) groups
+            # the whole store by question and counts how many of each are
+            # wrong. The unique_together index leads with `student`, so that
+            # GROUP BY had nothing to walk and read every row in the table.
+            models.Index(fields=['question', 'is_correct'],
+                         name='maths_sa_question_correct_idx'),
+            # For a question somebody has reviewed, only the answers given
+            # since that review count — a range scan on this pair.
+            models.Index(fields=['question', 'answered_at'],
+                         name='maths_sa_question_when_idx'),
+        ]
 
     def __str__(self):
         return f"{self.student} - {self.question} - {'Correct' if self.is_correct else 'Incorrect'}"

@@ -134,7 +134,105 @@ class QuestionHealthDashboardView(SuperuserRequiredMixin, View):
             'issues': issues,
             'trend': trend,
             'flagged': (latest.flagged_questions if latest else []),
+            **wrong_rate_context(),
         })
+
+
+def wrong_rate_context():
+    """The "most often answered wrong" panel's context.
+
+    Shared by the dashboard and by the Reviewed button, which re-renders the
+    panel alone: a reviewed question has to leave the list in front of the
+    person who reviewed it, and rebuilding the panel from the same function is
+    what stops the two views from ever disagreeing about what is in it.
+    """
+    from .question_difficulty import (
+        MIN_ATTEMPTS, TOP_N, report_counts, wrong_rate_rows)
+
+    rows = wrong_rate_rows()
+    reports = report_counts([row['question'].id for row in rows])
+    # The longest bar sets the scale, so ten questions between 40% and 55% are
+    # still told apart at a glance. The percentage is printed next to every bar
+    # so a relative scale can never be misread as an absolute one.
+    widest = max((row['percent'] for row in rows), default=0) or 1
+    for row in rows:
+        question = row['question']
+        row['reports'] = reports.get(question.id, 0)
+        row['is_global'] = question.school_id is None
+        row['bar'] = max(6, round(row['percent'] * 100 / widest))
+    return {
+        'wrong_rate_rows': rows,
+        'wrong_rate_top_n': TOP_N,
+        'wrong_rate_min_attempts': MIN_ATTEMPTS,
+    }
+
+
+class QuestionReviewedView(SuperuserRequiredMixin, View):
+    """"Reviewed and correct" from the wrong-answer leaderboard.
+
+    Records the same verdict the check page's bulk action does — one
+    ``QuestionReview`` row, naming the person and the content version they read
+    — because it is the same claim: somebody opened this question, read it, and
+    concluded it marks correctly. Keeping it as one verdict rather than
+    inventing a second "dismissed from the leaderboard" flag is what stops the
+    two pages from disagreeing about which questions a human has passed.
+
+    The question leaves the list because the answers recorded before the review
+    are now settled, not because it is hidden: see ``question_difficulty``. If
+    students go on getting it wrong afterwards it comes back on its own.
+    """
+
+    def post(self, request):
+        from audit.services import log_event
+
+        from .models import Question, QuestionReview
+        from .question_review import record_review
+
+        try:
+            question_id = int(request.POST.get('question_id') or 0)
+        except (TypeError, ValueError):
+            question_id = 0
+
+        question = Question.objects.filter(id=question_id).first()
+        if question is None:
+            # An id that names nothing is a bug in the caller, not a no-op to
+            # swallow: saying so beats a row that quietly stays put.
+            note = f'No question {question_id} — nothing was reviewed.'
+            failed = True
+        else:
+            review = record_review(
+                question, user=request.user,
+                verdict=QuestionReview.VERDICT_CORRECT,
+                note=(request.POST.get('note') or '').strip(),
+            )
+            log_event(
+                user=request.user, school=question.school,
+                category='data_change', action='question_reviewed_correct',
+                detail={'question_id': question.id, 'review_id': review.id,
+                        'from': 'wrong_answer_leaderboard'},
+                request=request,
+            )
+            note = (
+                f'Q{question.id} marked reviewed and correct — the answers '
+                'recorded before now no longer count towards its rate. It '
+                'comes back if students go on getting it wrong.')
+            failed = False
+
+        if request.headers.get('HX-Request'):
+            # The panel is swapped in place, so the outcome has to travel with
+            # it: a toast queued here would surface on some later full page
+            # load, next to nothing that explains it.
+            return render(
+                request,
+                'admin_dashboard/question_health/_wrong_rate.html',
+                {**wrong_rate_context(), 'notice': note,
+                 'notice_level': 'error' if failed else 'ok'})
+
+        if failed:
+            messages.error(request, note)
+        else:
+            messages.success(request, note)
+        return redirect('question_health_admin_dashboard')
 
 
 def _ids(request, key):
