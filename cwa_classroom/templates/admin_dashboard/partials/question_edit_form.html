@@ -201,6 +201,33 @@
   {% endif %}
 
   {% comment %}
+  The explanation. It is what the child reads AFTER they answer — in the quiz
+  review, on the worksheet feedback — so a question whose answer key was wrong
+  usually has an explanation that argues for the wrong answer, and fixing the
+  key without it leaves the reasoning still telling them the old answer was
+  right. It was the one field on the question this editor could not reach, so
+  the repair could only ever be half done from here.
+
+  Editing it never re-marks anything: no grader reads it (see
+  grading_fingerprint), so it cannot change how a past answer was judged.
+  {% endcomment %}
+  <div class="mb-5">
+    <label for="question-explanation"
+           class="block text-sm font-semibold text-gray-700 mb-1.5">
+      Explanation
+      <span class="font-normal text-gray-400">— shown to the student after they answer</span>
+    </label>
+    <textarea id="question-explanation" name="explanation" rows="3"
+              data-testid="question-explanation"
+              placeholder="Why the correct answer is correct, in the words a child would read."
+              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent focus:border-accent resize-y">{{ question.explanation }}</textarea>
+    <p class="text-xs text-gray-400 mt-1">
+      Left empty, the student simply sees whether they were right. Changing this
+      never re-marks a past answer — no grader reads it.
+    </p>
+  </div>
+
+  {% comment %}
   Re-marking answers already recorded is a decision about children's records,
   so it is a tick and not a consequence of pressing Save. Ticked already when
   this editor was opened from the wrong-answer leaderboard — that page exists
