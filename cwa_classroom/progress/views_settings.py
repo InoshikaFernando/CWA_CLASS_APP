@@ -28,6 +28,11 @@ ALL_FIELDS = (
     + ProgressReportSetting.DELIVERY_FIELDS
     + ProgressReportSetting.CONTENT_FIELDS
 )
+# Coverage, offered on the school form only (CPP-422). "Every student in the
+# school" is not a question a department or a class can answer differently, and
+# the students it decides about are the ones with no class row to read — so a
+# switch on those forms would be a control that silently does nothing.
+OUTREACH_FIELDS = ProgressReportSetting.OUTREACH_FIELDS
 SCHEDULE_FIELDS = ProgressReportSetting.SCHEDULE_FIELDS
 
 WEEKDAYS = [
@@ -53,6 +58,8 @@ FIELD_LABELS = {
     'include_rubric': "Teacher's assessment",
     'include_teacher_comment': "Teacher's comment",
     'include_next_steps': "What's next",
+    'whole_school': 'Cover every student in the school',
+    'email_parents_no_data': 'Email parents when there is nothing to show',
 }
 
 # Rendered as three labelled groups rather than one grid of thirteen switches:
@@ -71,6 +78,32 @@ FIELD_GROUPS = [
      "it is left out rather than shown empty, and none of these can hold up a "
      "send: a report goes out whether or not a teacher has written a comment."),
 ]
+
+# Appended to the school form only — see OUTREACH_FIELDS.
+OUTREACH_GROUP = (
+    'Who is covered', OUTREACH_FIELDS,
+    'By default a run reaches only students in a class with the report '
+    'switched on. Switch coverage on and it reaches every active student in '
+    'the school instead — including those with no subscription and those who '
+    'did nothing — and the ones with nothing to show get a short email to '
+    'their parents saying why, with your signup discount code when the reason '
+    'is a subscription that was never activated.',
+)
+
+
+def _groups(field_groups):
+    """Render one list of switch groups for the template."""
+    return [
+        {
+            'title': title,
+            'note': note,
+            'switches': [
+                {'field': field, 'label': FIELD_LABELS[field]}
+                for field in fields
+            ],
+        }
+        for title, fields, note in field_groups
+    ]
 
 
 def _schools_for(user):
@@ -192,17 +225,11 @@ class ReportSettingsView(RoleRequiredMixin, ModuleRequiredMixin, View):
             'school_row': school_row,
             'departments': departments,
             'classrooms': classrooms,
-            'switch_groups': [
-                {
-                    'title': title,
-                    'note': note,
-                    'switches': [
-                        {'field': field, 'label': FIELD_LABELS[field]}
-                        for field in fields
-                    ],
-                }
-                for title, fields, note in FIELD_GROUPS
-            ],
+            'switch_groups': _groups(FIELD_GROUPS),
+            # The school form gets one extra group; department and class forms
+            # do not, so nobody is offered a switch that would not be read.
+            'school_switch_groups': _groups(FIELD_GROUPS + [OUTREACH_GROUP]),
+            'outreach': report_settings.outreach(school),
             'enabled_count': sum(1 for c in classrooms if c.sends_anything),
             'auto_count': sum(
                 1 for c in classrooms
@@ -235,6 +262,11 @@ class ReportSettingsView(RoleRequiredMixin, ModuleRequiredMixin, View):
             return redirect(f'{request.path}?school={school.id}')
 
         values = {field: _tristate(request, '', field) for field in ALL_FIELDS}
+        if kind == 'school':
+            values.update({
+                field: _tristate(request, '', field)
+                for field in OUTREACH_FIELDS
+            })
         values['mode'] = _mode(request)
         values['send_weekly_on'] = _number(request, 'send_weekly_on', 0, 6)
         values['send_monthly_on'] = _number(request, 'send_monthly_on', 1, 28)
