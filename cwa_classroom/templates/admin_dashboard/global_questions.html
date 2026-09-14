@@ -344,9 +344,18 @@ document.addEventListener('DOMContentLoaded', function() {
 document.body.addEventListener('htmx:afterSwap', function(evt) {
   var target = evt.detail.target;
   if (!target) { return; }
-  if (target.id === 'edit-modal-content'
-      && target.querySelector('#edit-saved')) {
-    closeEditModal();
+  var saved = (target.id === 'edit-modal-content')
+    ? target.querySelector('#edit-saved') : null;
+  if (saved) {
+    // A bare "Saved." closes at once, as it always has. One carrying a warning
+    // or a report of marks given back stays up long enough to be read — it was
+    // being rendered into a modal that closed in the same frame, so nobody
+    // ever saw it.
+    if (saved.hasAttribute('data-hold')) {
+      window.setTimeout(closeEditModal, 3000);
+    } else {
+      closeEditModal();
+    }
     return;
   }
   if (target.id && (target.id.startsWith('question-row-')

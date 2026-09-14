@@ -321,33 +321,179 @@ class RegradeOnSaveTests(WrongRateTestBase):
         row.refresh_from_db()
         self.assertFalse(row.is_correct)
 
-    def test_saving_from_the_editor_re_marks_and_says_so(self):
-        """End to end: the editor's Save is what owes the marks back."""
+def _regrade_input(response):
+    """The re-mark tick box's own <input> tag, plus 'CHECKED' when it is ticked.
+
+    Searching the whole page for "checked" would pass whatever the state is —
+    every correct option in this form carries it.
+    """
+    import re
+
+    html = response.content.decode()
+    match = re.search(r'<input[^>]*name="regrade_answers"[^>]*>', html)
+    assert match, 'the re-mark tick box is not on this form'
+    tag = match.group(0)
+    return tag + ('CHECKED' if re.search(r'\bchecked\b', tag) else '')
+
+
+class EditorSaveTests(WrongRateTestBase):
+    """What the editor's Save does, and the two gates that decide whether.
+
+    Re-marking a child's record is not a side effect of pressing Save. It
+    happens when a person asked for it AND the save actually changed how the
+    question marks — and these tests are what keep both halves true.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.client.login(username='rateadmin', password='pass1234')
+
+    def _mismarked(self):
+        """A question whose key has the wrong option ticked, already sat."""
         question = self.question(
             text='666 in expanded form', school=None,
             options=(('600 + 60 + 6', False), ('6 + 6 + 6', True)))
-        right_option = question.answers.get(answer_text='600 + 60 + 6')
-        wrong_option = question.answers.get(answer_text='6 + 6 + 6')
+        right = question.answers.get(answer_text='600 + 60 + 6')
+        wrong = question.answers.get(answer_text='6 + 6 + 6')
         row = self.answer(question, self.students[0], correct=False,
-                          option=right_option)
+                          option=right)
+        return question, right, wrong, row
 
-        client = Client()
-        client.login(username='rateadmin', password='pass1234')
-        response = client.post(
-            reverse('admin_global_question_edit', args=[question.id]),
-            {
-                'question_text': question.question_text,
-                'question_type': Question.MULTIPLE_CHOICE,
-                'answer_id': [right_option.id, wrong_option.id],
-                f'answer_text_{right_option.id}': '600 + 60 + 6',
-                f'is_correct_{right_option.id}': 'on',
-                f'answer_text_{wrong_option.id}': '6 + 6 + 6',
-            })
+    def _save(self, question, right, wrong, *, fix_key=True, regrade=True,
+              text=None):
+        payload = {
+            'question_text': text or question.question_text,
+            'question_type': Question.MULTIPLE_CHOICE,
+            'answer_id': [right.id, wrong.id],
+            f'answer_text_{right.id}': right.answer_text,
+            f'answer_text_{wrong.id}': wrong.answer_text,
+        }
+        # Ticking the right option is what makes this a key correction; without
+        # it the save changes nothing about how the question marks.
+        payload[f'is_correct_{right.id}' if fix_key
+                else f'is_correct_{wrong.id}'] = 'on'
+        if regrade:
+            payload['regrade_answers'] = 'on'
+        return self.client.post(
+            reverse('admin_global_question_edit', args=[question.id]), payload)
+
+    def test_fixing_the_key_with_the_tick_re_marks_and_says_so(self):
+        question, right, wrong, row = self._mismarked()
+
+        response = self._save(question, right, wrong)
 
         self.assertEqual(response.status_code, 200)
         row.refresh_from_db()
         self.assertTrue(row.is_correct)
         self.assertContains(response, 'now marked correct')
+        # And the notice is marked as worth reading, so the page holds the
+        # modal open instead of closing it in the same frame.
+        self.assertContains(response, 'data-hold')
+
+    def test_without_the_tick_the_key_is_fixed_but_no_mark_moves(self):
+        """The opt-in gate. Saving from the question bank leaves records alone.
+
+        The same editor serves ordinary maintenance, where re-judging what
+        children were marked years ago is not what anybody asked for.
+        """
+        question, right, wrong, row = self._mismarked()
+
+        response = self._save(question, right, wrong, regrade=False)
+
+        self.assertEqual(response.status_code, 200)
+        right.refresh_from_db()
+        self.assertTrue(right.is_correct)        # the question IS fixed
+        row.refresh_from_db()
+        self.assertFalse(row.is_correct)         # the record is untouched
+        self.assertNotContains(response, 'now marked correct')
+
+    def test_an_edit_that_does_not_change_grading_re_marks_nothing(self):
+        """The fingerprint gate.
+
+        A typo fixed in the stem used to re-run today's grader over every
+        answer ever given to the question — so where the grader had improved
+        since, marks moved on a save nobody meant as a correction.
+        """
+        question = self.question(
+            text='What is 1/2 + 1/4?', school=None,
+            options=(('3/4', True), ('1/4', False)))
+        right = question.answers.get(answer_text='3/4')
+        wrong = question.answers.get(answer_text='1/4')
+        row = self.answer(question, self.students[0], correct=False,
+                          option=wrong)
+
+        # Tick asked for, stem corrected, key untouched.
+        response = self._save(question, right, wrong,
+                              text='What is 1/2 + 1/4 ?')
+
+        self.assertEqual(response.status_code, 200)
+        question.refresh_from_db()
+        self.assertEqual(question.question_text, 'What is 1/2 + 1/4 ?')
+        row.refresh_from_db()
+        self.assertFalse(row.is_correct)
+        self.assertNotContains(response, 'now marked correct')
+
+    def test_the_tick_arrives_ticked_from_the_leaderboard_only(self):
+        """One endpoint serves both pages; ?regrade=1 is what tells them apart."""
+        question, _right, _wrong, _row = self._mismarked()
+        url = reverse('admin_global_question_edit', args=[question.id])
+
+        from_bank = self.client.get(url)
+        from_leaderboard = self.client.get(f'{url}?regrade=1')
+
+        # Read the tick box's own tag: "checked" appears on every ticked option
+        # in this form, so searching the whole page would pass either way.
+        self.assertFalse(_regrade_input(from_bank).endswith('CHECKED'))
+        self.assertTrue(_regrade_input(from_leaderboard).endswith('CHECKED'))
+        # The reader is told the size of what they are authorising.
+        self.assertContains(from_leaderboard, 'on record marked wrong')
+
+    def test_no_tick_is_offered_for_an_ai_graded_question(self):
+        """A tick that cannot do anything would be a promise the page can't keep."""
+        question = self.question(text='Explain your reasoning', school=None,
+                                 options=(('anything', True),))
+        question.validation_type = Question.VALIDATION_AI
+        question.save(update_fields=['validation_type'])
+
+        response = self.client.get(
+            reverse('admin_global_question_edit', args=[question.id]))
+
+        self.assertNotContains(response, 'regrade_answers')
+
+
+class GradingFingerprintTests(WrongRateTestBase):
+
+    def test_the_stem_counts_only_where_the_grader_reads_it(self):
+        """Pattern questions are graded FROM the stem; everything else is not."""
+        from maths.answer_key_regrade import grading_fingerprint
+
+        plain = self.question(text='What is 1/2 + 1/4?',
+                              question_type=Question.SHORT_ANSWER,
+                              options=(('3/4', True),))
+        before = grading_fingerprint(plain)
+        plain.question_text = 'What is 1/2 + 1/4 ?'
+        plain.save(update_fields=['question_text'])
+        self.assertEqual(grading_fingerprint(plain), before)
+
+        pattern = self.question(
+            text='Make a pattern that goes up by 5',
+            question_type=Question.SHORT_ANSWER,
+            options=(('any', True),),
+            answer_format=Question.ANSWER_FORMAT_PATTERN)
+        before = grading_fingerprint(pattern)
+        pattern.question_text = 'Make a pattern that goes up by 7'
+        pattern.save(update_fields=['question_text'])
+        self.assertNotEqual(grading_fingerprint(pattern), before)
+
+    def test_moving_the_correct_tick_changes_the_fingerprint(self):
+        from maths.answer_key_regrade import grading_fingerprint
+
+        question = self.question(options=(('3/4', True), ('1/4', False)))
+        before = grading_fingerprint(question)
+        question.answers.filter(answer_text='3/4').update(is_correct=False)
+        question.answers.filter(answer_text='1/4').update(is_correct=True)
+
+        self.assertNotEqual(grading_fingerprint(question), before)
 
     def test_a_spec_graded_question_is_not_re_marked_from_its_text(self):
         """The guard that stops marks being handed out by the wrong grader.

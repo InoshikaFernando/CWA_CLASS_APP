@@ -116,6 +116,10 @@ def test_fixing_the_answer_key_gives_the_marks_back(
                  ).locator("[data-testid='wrong-rate-edit']").click()
     expect(page.locator("#edit-modal-content")).to_contain_text("Edit Question")
 
+    # Opened from this page, the re-mark tick arrives already ticked: the
+    # question is on this list precisely because children lost marks to it.
+    expect(page.locator("[data-testid='regrade-answers']")).to_be_checked()
+
     right = Answer.objects.get(question=badly_answered_question,
                                answer_text="600 + 60 + 6")
     wrong = Answer.objects.get(question=badly_answered_question,
@@ -124,11 +128,49 @@ def test_fixing_the_answer_key_gives_the_marks_back(
     page.locator(f"input[name='is_correct_{wrong.id}']").uncheck()
     page.locator("#question-edit-form button[type='submit']").click()
 
-    expect(page.locator("[data-testid='regraded-note']")).to_contain_text(
-        "now marked correct")
+    # Visible, not merely rendered: the modal used to close in the same frame
+    # this notice arrived in, so nobody ever read it.
+    note = page.locator("[data-testid='regraded-note']")
+    expect(note).to_be_visible()
+    expect(note).to_contain_text("now marked correct")
 
     assert StudentAnswer.objects.filter(
         question=badly_answered_question, is_correct=True).count() == 6
+
+
+def test_the_re_mark_is_opt_in_from_the_question_bank(
+    page, live_server, superuser, subject, level, topic, badly_answered_question,
+):
+    """The same editor, opened from the bank, leaves children's records alone.
+
+    This is the narrowing: re-marking is the leaderboard's job, not a
+    consequence of pressing Save wherever the editor happens to be opened.
+    """
+    from maths.models import Answer, StudentAnswer
+
+    do_login(page, live_server.url, superuser)
+    page.goto(f"{live_server.url}/admin-dashboard/global-questions/"
+              f"?edit={badly_answered_question.id}")
+    page.wait_for_load_state("domcontentloaded")
+    expect(page.locator("#edit-modal-content")).to_contain_text("Edit Question")
+
+    expect(page.locator("[data-testid='regrade-answers']")).not_to_be_checked()
+
+    right = Answer.objects.get(question=badly_answered_question,
+                               answer_text="600 + 60 + 6")
+    wrong = Answer.objects.get(question=badly_answered_question,
+                               answer_text="6 + 6 + 6")
+    page.locator(f"input[name='is_correct_{right.id}']").check()
+    page.locator(f"input[name='is_correct_{wrong.id}']").uncheck()
+    page.locator("#question-edit-form button[type='submit']").click()
+
+    expect(page.locator("#edit-saved")).to_contain_text("Saved")
+
+    # The question is fixed; the six recorded marks are untouched.
+    right.refresh_from_db()
+    assert right.is_correct
+    assert StudentAnswer.objects.filter(
+        question=badly_answered_question, is_correct=True).count() == 0
 
 
 def test_reviewed_takes_it_off_the_list(

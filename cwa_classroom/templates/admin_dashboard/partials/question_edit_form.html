@@ -200,6 +200,49 @@
   </div>
   {% endif %}
 
+  {% comment %}
+  Re-marking answers already recorded is a decision about children's records,
+  so it is a tick and not a consequence of pressing Save. Ticked already when
+  this editor was opened from the wrong-answer leaderboard — that page exists
+  because children lost marks to the question — and unticked from the question
+  bank, where the same editor does ordinary maintenance.
+
+  The count is what is ON RECORD wrong, deliberately not a prediction of what
+  will flip: the key has not been corrected yet at the moment this is drawn, so
+  how many move depends on the edit still being typed. Saying "up to" is the
+  difference between a number a reader can trust and one that quietly misses.
+
+  Hidden entirely for an AI- or human-graded question: those marks are
+  somebody's judgement, the re-mark refuses them, and offering a tick that does
+  nothing would be a promise this page cannot keep.
+  {% endcomment %}
+  {% if offer_regrade %}
+  <div class="mb-5 p-3 rounded-lg border border-amber-200 bg-amber-50/60">
+    <label class="flex items-start gap-2.5 cursor-pointer">
+      <input type="checkbox" name="regrade_answers" data-testid="regrade-answers"
+             {% if regrade_checked %}checked{% endif %}
+             class="mt-0.5 w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500">
+      <span class="text-xs text-gray-700">
+        <strong class="font-semibold">Also re-mark answers already recorded.</strong>
+        {% if recorded_wrong %}
+        Up to {{ recorded_wrong }} answer{{ recorded_wrong|pluralize }} to this
+        question {{ recorded_wrong|pluralize:"is,are" }} on record marked wrong.
+        Any the corrected answer now makes right will be given the mark, and the
+        quiz, homework and worksheet totals built on them recounted.
+        {% else %}
+        No answer to this question is on record marked wrong, so this has
+        nothing to correct today.
+        {% endif %}
+        <span class="block mt-1 text-gray-500">
+          Marks are only ever given back, never taken away. Leave this unticked
+          if you are rewriting the question into a different one — past answers
+          would then be re-judged against a question nobody sat.
+        </span>
+      </span>
+    </label>
+  </div>
+  {% endif %}
+
   {% comment %} The form shows what is STORED; the preview shows what a child MEETS. The
      faults this editor exists to repair — one lonely option, every option
      ticked correct, an answer no typed spelling matches — all look ordinary
