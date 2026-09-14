@@ -389,6 +389,12 @@ jobs:
               # change there is what most often breaks these tests.
               - 'cwa_classroom/classroom/**'
               - 'cwa_classroom/templates/messaging/**'
+              # WHO a message can be addressed to is a billing question: the
+              # "Unsubscribed Students" chip resolves its list through
+              # billing/selectors.py. Get that wrong and the chip returns the
+              # families who are already paying, or nobody — and a recipient
+              # list that is quietly wrong looks exactly like one that is right.
+              - 'cwa_classroom/billing/**'
             ui_navigation:
               - 'cwa_classroom/ui_tests/navigation/**'
               - 'cwa_classroom/accounts/**'

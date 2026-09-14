@@ -124,6 +124,31 @@ python manage.py free_trial_code --code MHM-TERM4 --days 21 --expires 2026-12-19
 python manage.py free_trial_code --code MHM2WEEKS --deactivate  # stop new sign-ups
 ```
 
+### `notify_payment_required`
+Email families who are not paying, with the discount code and a link to start.
+Two audiences, because the lists are not the same people:
+
+- `--audience regated` (default) — students the re-gating pass put back behind
+  the payment wall who have logged in before. Run after
+  `reset_imported_student_gating`.
+- `--audience unsubscribed` — everybody with no live subscription of their own,
+  **including students who never subscribed at all**. A student coming off a
+  free promotion is invisible to `regated` (their profile is complete and they
+  have logged in), so this is the audience a promotion goes to.
+
+`--include-parents` adds each student's linked parent or guardian — the student
+has the account, the parent has the card. Anyone already emailed is skipped so
+a re-run never double-sends; `--resend` overrides that. Always `--dry-run`
+first: it prints the exact recipient list and sends nothing.
+```bash
+python manage.py notify_payment_required --school 4 \
+    --audience unsubscribed --include-parents --dry-run
+python manage.py notify_payment_required --school 4 \
+    --audience unsubscribed --include-parents \
+    --discount-code MHM2WEEKS --discount-percent 100 \
+    --link-url https://www.wizardslearninghub.co.nz/accounts/complete-profile/
+```
+
 ### `promo_code_doctor`
 Report whether each Student (Promo) code has actually taken effect for anybody.
 Read-only — it writes nothing, so it is safe against production. Separates a
