@@ -16,6 +16,53 @@ The app registers a `MathsPlugin` with `classroom.subject_registry` from `AppCon
 - **TimeLog** — time spent per user / level / subject (also used by `coding`).
 - **TopicLevelStatistics** — cumulative best_score, attempts, avg_time per student / topic / level.
 
+## Times-table results go stale, they do not expire (`times_table_freshness.py`)
+
+Every surface that shows a times table shows the student's **best** attempt —
+the colour tiles on the dashboard wall (`classroom.views._tt_colour`), the
+picker at `/maths/times-tables/`, the progress report. A best score has no
+expiry, so on its own it asserts that a table mastered in March is mastered
+today, with no date anywhere on the page to say otherwise.
+
+The obvious fix — delete or ignore attempts older than a term so "all results
+are new" — is the wrong one, for two reasons:
+
+* **It would silently take points off students.**
+  `rewards.rebuild_points_ledger._maths_quizzes` awards times-table points from
+  `Max('points')` across *every* attempt a student has ever made. Drop the best
+  attempt and the next ledger rebuild lowers their total, with nothing to say
+  why. That is the silent failure CLAUDE.md forbids.
+* **It would lose the evidence.** "Not practised since March" is true and
+  useful to a parent. Showing grey says "never practised", which is false.
+
+So the score stands and *freshness* is reported beside it, derived from
+`completed_at` on the fly — nothing stored, no migration, no backfill, nothing
+deleted. Freshness comes from the student's **latest** attempt, never their
+best one: a child who scored 100% in March and 40% last week has practised
+recently, and the pass that earns the colour is not the pass that keeps it
+current. Shuffled and in-order runs are separate *scores* but one table for
+freshness — either is the child sitting down to it.
+
+| State   | Since the last attempt | What the page does                       |
+|---------|------------------------|------------------------------------------|
+| `FRESH` | under 6 weeks          | shows the result as it is                |
+| `DUE`   | 6 weeks – 3 months     | fades it, "Due a refresh"                |
+| `STALE` | over 3 months          | washes it out, "Needs a refresh"         |
+| `NEVER` | no attempt             | unchanged — the existing grey/"Not tried" |
+
+Six weeks is the first nudge rather than three months because a table a child
+is still learning decays by lack of retrieval long before a term is out; three
+months is where the result stops being evidence about now. Both thresholds are
+overridable — `TIMES_TABLE_FRESH_DAYS`, `TIMES_TABLE_STALE_DAYS` — but they
+*default* in `times_table_freshness.py` rather than being declared in
+`settings.py` on purpose: every file in the project package bar `version.py` is
+watched by ci.yml's `shared` filter, so two tuning constants there would make
+every change to them run all 20 unit suites and all 15 UI groups.
+
+Locked tables are never nudged: the picker greys out the tables a student's
+year cannot practise, and asking for a refresh the child has no way to do is a
+chore, not a prompt.
+
 ## URL prefix & key routes
 
 Mounted at `/maths/` (namespace `maths`). The same prefix is shared with `quiz` (basic-facts, level-based) and `number_puzzles`.
