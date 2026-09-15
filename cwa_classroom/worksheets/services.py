@@ -1926,7 +1926,30 @@ def _render_clean_diagram(fitz_page, clip_rect, dpi=150):
     return pix
 
 
-def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
+def _page_clusters(fitz_page, cache=None):
+    """The page's drawing clusters, computed once per page when ``cache`` is given.
+
+    ``cluster_drawings()`` walks every path on the page. On a textbook page
+    with 10,000 decorative paths that is ~0.8 s, and the crop path used to call
+    it two or three times PER FIGURE — a 13-page algebra booklet spent 36 s of
+    its render phase clustering the same four pages over and over. ``cache`` is
+    a dict the caller keeps for one render run, keyed by page number; without
+    it (the re-crop tool, ai_import) the clusters are simply computed. Returns
+    ``None`` when PyMuPDF cannot cluster the page.
+    """
+    key = fitz_page.number
+    if cache is not None and key in cache:
+        return cache[key]
+    try:
+        clusters = fitz_page.cluster_drawings()
+    except Exception:
+        clusters = None
+    if cache is not None:
+        cache[key] = clusters
+    return clusters
+
+
+def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50, clusters=None):
     """
     Return the tight bounding rect of the vector drawing elements that BELONG to
     *search_rect* (in PDF points) — i.e. whose centre lies inside it.
@@ -1949,10 +1972,8 @@ def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
     # (number lines, grids, geometry) are zero-area, so an area filter on them
     # would discard line-art figures entirely. cluster_drawings() bounds them
     # correctly.
-    try:
-        clusters = fitz_page.cluster_drawings()
-    except Exception:
-        return None
+    if clusters is None:
+        clusters = _page_clusters(fitz_page)
     if not clusters:
         return None
 
@@ -2002,7 +2023,8 @@ def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
     return tight if tight.is_valid and tight.width > 10 and tight.height > 10 else None
 
 
-def _smart_diagram_rect(fitz_page, search_rect, min_area_pts=50, gap_tol=18):
+def _smart_diagram_rect(fitz_page, search_rect, min_area_pts=50, gap_tol=18,
+                        clusters=None):
     """
     Decide the crop rect for a diagram that lives inside *search_rect* (PDF points).
 
@@ -2021,12 +2043,24 @@ def _smart_diagram_rect(fitz_page, search_rect, min_area_pts=50, gap_tol=18):
     """
     import fitz
 
-    core = _tight_drawings_rect(fitz_page, search_rect, min_area_pts=min_area_pts)
+    core = _tight_drawings_rect(fitz_page, search_rect, min_area_pts=min_area_pts,
+                                clusters=clusters)
     if core is None:
         return None
 
     page_rect = fitz_page.rect
     max_label_w = 0.5 * page_rect.width  # wider than this ⇒ running text, not a label
+
+    # A label is kept WHOLE or not at all. The crop is clamped to the model's
+    # box, so a label absorbed and then clamped came out sliced — a loose box
+    # around a prism kept "Volume = l" and "Surface Ar" from the formulas beside
+    # it. A narrow label may now sit up to ``label_reach`` points past the box
+    # and still be taken in full (an axis number the box just missed); a block
+    # that reaches further than that is left out entirely.
+    label_reach = 24
+    envelope = fitz.Rect(search_rect.x0 - label_reach, search_rect.y0 - label_reach,
+                         search_rect.x1 + label_reach, search_rect.y1 + label_reach)
+    keep = fitz.Rect(search_rect)    # the clamp: the box plus every label absorbed
 
     grown = fitz.Rect(core)
     for b in fitz_page.get_text('blocks'):
@@ -2036,6 +2070,8 @@ def _smart_diagram_rect(fitz_page, search_rect, min_area_pts=50, gap_tol=18):
         br = displayed_rect(fitz_page, fitz.Rect(b[0], b[1], b[2], b[3]))
         if br.width > max_label_w:
             continue                 # running text — never an attached label
+        if not envelope.contains(br):
+            continue                 # would be sliced by the clamp — whole or nothing
         # Gap from the diagram core (measured against the core, NOT the growing
         # rect, so one absorbed label can't chain the crop down to the sentence).
         # Labels above the core count too — e.g. a "North"/title/axis-max sitting
@@ -2047,13 +2083,14 @@ def _smart_diagram_rect(fitz_page, search_rect, min_area_pts=50, gap_tol=18):
         dy = max(core.y0 - br.y1, br.y0 - core.y1, 0.0)
         if dx <= gap_tol and dy <= gap_tol:
             grown.include_rect(br)   # absorb the attached label
+            keep.include_rect(br)    # …and let the clamp keep all of it
 
     margin = 4
     grown = fitz.Rect(grown.x0 - margin, grown.y0 - margin,
                       grown.x1 + margin, grown.y1 + margin)
-    # Clamp to the search region so absorbing a label can't pull the crop onto a
-    # neighbouring figure on a multi-figure page.
-    grown.intersect(search_rect)
+    # Clamp to the search region (plus the labels taken whole) so absorbing a
+    # label can't pull the crop onto a neighbouring figure on a multi-figure page.
+    grown.intersect(keep)
     return grown if grown.is_valid and grown.width > 10 and grown.height > 10 else None
 
 
@@ -2095,7 +2132,7 @@ def _region_has_raster_image(fitz_page, search_rect, min_overlap_frac=0.12):
     return False
 
 
-def _region_has_drawing(fitz_page, search_rect, min_area_pts=50):
+def _region_has_drawing(fitz_page, search_rect, min_area_pts=50, clusters=None):
     """
     Return True if a (non page-border) vector figure cluster overlaps *search_rect*.
 
@@ -2105,9 +2142,9 @@ def _region_has_drawing(fitz_page, search_rect, min_area_pts=50):
     """
     import fitz
 
-    try:
-        clusters = fitz_page.cluster_drawings()
-    except Exception:
+    if clusters is None:
+        clusters = _page_clusters(fitz_page)
+    if not clusters:
         return False
     page_rect = fitz_page.rect
     page_area = page_rect.width * page_rect.height
@@ -2237,6 +2274,8 @@ def render_question_images(doc, extracted_pages, classified_result, progress=Non
     report = progress or (lambda _msg: None)
     pages_by_num = {p['page_num']: p for p in extracted_pages['pages']}
     extracted_images = {}
+    # Drawing clusters per page, computed once per run (see _page_clusters).
+    cluster_cache = {}
 
     questions = classified_result.get('questions', [])
     with_images = sum(1 for q in questions if q.get('has_image'))
@@ -2311,7 +2350,8 @@ def render_question_images(doc, extracted_pages, classified_result, progress=Non
             # actual vector drawing plus its attached labels (e.g. A/B/C/D) so
             # stray question text below the diagram is excluded.
             search_rect = fitz.Rect(pt0, pt1, pt2, pt3)
-            clip_rect = _smart_diagram_rect(fitz_page, search_rect)
+            clusters = _page_clusters(fitz_page, cluster_cache)
+            clip_rect = _smart_diagram_rect(fitz_page, search_rect, clusters=clusters)
             render_dpi = None
             if clip_rect is None:
                 # Couldn't snap to a tight figure. Render Claude's bbox as-is when
@@ -2319,14 +2359,14 @@ def render_question_images(doc, extracted_pages, classified_result, progress=Non
                 # PDF) or a vector cluster that overlaps the region. Only when
                 # there is neither do we treat the bbox as spurious (it points at
                 # plain text) and drop it — the "totally irrelevant image" case.
-                if (_region_has_raster_image(fitz_page, search_rect)
-                        or _region_has_drawing(fitz_page, search_rect)):
+                has_drawing = _region_has_drawing(fitz_page, search_rect, clusters=clusters)
+                if has_drawing or _region_has_raster_image(fitz_page, search_rect):
                     clip_rect = fitz.Rect(pt0, pt1, pt2, min(pdf_h, pt3 + 20))
                     # A region that is only a scan gains nothing from print DPI:
                     # rendering a 180-DPI photocopy at 300 DPI just upsamples
                     # it into a multi-megabyte PNG. Stop at the scan's own
                     # resolution (vector regions keep the full render DPI).
-                    if not _region_has_drawing(fitz_page, search_rect):
+                    if not has_drawing:
                         native = raster_native_dpi(fitz_page, clip_rect)
                         if native:
                             render_dpi = max(72, min(IMAGE_RENDER_DPI, int(native)))
