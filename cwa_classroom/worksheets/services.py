@@ -999,6 +999,15 @@ Rules:
    answer → "$4.50" AND "4.50"; "3/4" → "3/4" AND "0.75". Do NOT add forms that are merely
    spacing/comma/hyphen variants — the grader already ignores those.
 5. For multiple choice, list ALL provided answer options including the correct one.
+5b. PICK THE PICTURED ITEM: "Tick the cylinder", "Circle the smallest square", "Which of
+   these is a cone?" — the student chooses ONE item from a row or set of PICTURES (shapes,
+   solids, objects). The picture is the question: set has_image=true with image_bbox around
+   the WHOLE row/set of pictured items, never has_image=false. Use multiple_choice with
+   options that name POSITIONS only — "The first shape", "The second shape", "The third
+   shape" (or "Shape A/B/C" when the sheet labels them) — and NEVER name or describe what the
+   pictures show ("the can-shaped solid", "the cube"): that gives the answer away and makes
+   the picture pointless. Put the correct position as is_correct. When the task is instead
+   "every X" among 2D shapes the app can trace, use shape_select (rule 14b).
 6. Write explanations that help students understand why they got it wrong.
 7. Do NOT skip questions even if they look simple.
 8. MATCHING / "name each" questions: when ONE question asks the student to match or name
@@ -2573,6 +2582,18 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
         result, extracted_images = render_question_images(
             doc, extracted_pages, result, progress=report,
         )
+
+        # Step 3a: a question whose wording points at a picture ("tick the
+        # cylinder", "the three shapes shown") but which ended the crop phase
+        # with no image is unanswerable as imported — whether the model set
+        # has_image=false or its box held no figure and was dropped. Route it
+        # to review with the reason. Deterministic; mirrors the AI import.
+        from ai_import.verification import flag_missing_figures
+        figureless = flag_missing_figures(result.get('questions'))
+        if figureless:
+            logger.info(
+                '%s question(s) flagged for review: the wording refers to a '
+                'picture but no image was attached.', figureless)
 
         # Step 3b: turn each "colour all the triangles" crop into a traced
         # shape_spec. Runs here because it needs the finished crops, and here
