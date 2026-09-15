@@ -94,7 +94,7 @@
         {% for q in questions %}
         {% with q_idx=forloop.counter0 %}
         <div class="q-card bg-white rounded-2xl border border-gray-100 shadow-sm {% if not q.include %}excluded{% endif %}{% if q.needs_review and not q.review_ack %} needs-review{% endif %}"
-             id="card-{{ q_idx }}">
+             id="card-{{ q_idx }}" data-review-card data-review-number="{{ forloop.counter }}">
 
           <!-- Card header -->
           <div class="card-header flex items-center gap-3 px-5 py-3 border-b border-gray-50">
@@ -136,18 +136,25 @@
               👁 Preview as student
             </button>
 
-            <button type="button" class="text-gray-400 hover:text-gray-600 toggle-btn" data-target="body-{{ q_idx }}">
+            <button type="button" class="text-gray-400 hover:text-gray-600 toggle-btn" data-target="body-{{ q_idx }}"
+                    data-review-expand>
               <svg class="w-4 h-4 chevron" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
               </svg>
             </button>
           </div>
 
+          {% if q.needs_review %}
+          <div class="px-5 pt-3">
+            {% include "_partials/review_points.html" with q=q idx=q_idx %}
+          </div>
+          {% endif %}
+
           <!-- Card body (collapsible) -->
-          <div class="p-5 space-y-4" id="body-{{ q_idx }}">
+          <div class="p-5 space-y-4" id="body-{{ q_idx }}" data-review-body>
 
             <!-- Image section -->
-            <div>
+            <div data-review-field="image">
               <label class="block text-xs font-medium text-gray-500 mb-1">Question Image</label>
               <div class="mb-2 {% if not q.image_b64 %}hidden{% endif %}" id="img-wrap-{{ q_idx }}">
                 <img src="{% if q.image_b64 %}data:image/png;base64,{{ q.image_b64 }}{% endif %}" alt="Question image"
@@ -181,7 +188,7 @@
             </div>
 
             <!-- Question text -->
-            <div>
+            <div data-review-field="question">
               <label class="block text-xs font-medium text-gray-500 mb-1">Question Text</label>
               <textarea name="q_{{ q_idx }}_text" rows="3"
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y">{{ q.question_text }}</textarea>
@@ -189,7 +196,7 @@
 
             <!-- Type + validation row -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div>
+              <div data-review-field="type">
                 <label class="block text-xs font-medium text-gray-500 mb-1">Question Type</label>
                 <select name="q_{{ q_idx }}_type"
                         onchange="handleTypeChange({{ q_idx }}, this.value)"
@@ -387,7 +394,8 @@
             Rendered either way: omitting it meant that switching a question
             BACK to short answer left no answers list in the page at all.
             {% endcomment %}
-            <div id="answers-row-{{ q_idx }}" {% if q.hide_answers %}class="hidden"{% endif %}>
+            <div id="answers-row-{{ q_idx }}" data-review-field="answer"
+                 {% if q.hide_answers %}class="hidden"{% endif %}>
               <label class="block text-xs font-medium text-gray-500 mb-2">Answers <span class="text-gray-400 font-normal">(tick the correct one — add alternatives that should also be accepted)</span></label>
               {% if q.answer_warning %}
               <p class="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">⚠ {{ q.answer_warning }}</p>
@@ -408,7 +416,7 @@
             </div>
 
             <!-- Explanation -->
-            <div>
+            <div data-review-field="explanation">
               <label class="block text-xs font-medium text-gray-500 mb-1">Explanation (shown to students)</label>
               <textarea name="q_{{ q_idx }}_explanation" rows="2"
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y">{{ q.explanation }}</textarea>
@@ -427,7 +435,10 @@
       </div>
 
       <!-- Bottom actions -->
-      <div class="mt-8 flex justify-between items-center">
+      <div class="mt-8">
+        {% include "_partials/review_gate.html" %}
+      </div>
+      <div class="flex justify-between items-center">
         <a href="{% url 'homework:pdf_upload' %}" class="text-sm text-gray-400 hover:text-gray-600">← Start Over</a>
         <button type="button" data-preview-all
                 class="px-5 py-3 rounded-xl border border-blue-200 text-sm font-semibold text-blue-600 hover:bg-blue-50 transition">
@@ -729,4 +740,5 @@
   });
 })();
 </script>
+{% include "_partials/review_points_js.html" %}
 {% endblock %}

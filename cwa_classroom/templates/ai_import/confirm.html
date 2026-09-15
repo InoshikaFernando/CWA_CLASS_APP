@@ -7,6 +7,9 @@
     <p class="text-gray-400 text-sm mt-1">Review the summary before saving questions to the database.</p>
   </div>
 
+  {% url 'ai_import:preview' session.pk as review_url %}
+  {% include "_partials/unreviewed_notice.html" with back_url=review_url %}
+
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
     <div class="grid grid-cols-2 gap-4">
       <div>

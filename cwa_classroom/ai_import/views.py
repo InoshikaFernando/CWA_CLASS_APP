@@ -671,9 +671,14 @@ class ConfirmImportView(RoleRequiredMixin, View):
         ))
         images_count = sum(1 for q in included_qs if q.get('image_ref'))
 
+        from ai_import.review_points import unreviewed_questions
+
         return render(request, 'ai_import/confirm.html', {
             'session': session,
             'data': data,
+            # Flagged questions the teacher submitted without ticking — the
+            # confirm click is what actually creates them.
+            'unreviewed': unreviewed_questions(data.get('questions', [])),
             'included_count': len(included_qs),
             'excluded_count': excluded_count,
             'total_count': len(data.get('questions', [])),

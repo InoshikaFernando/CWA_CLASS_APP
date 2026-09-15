@@ -19,3 +19,16 @@ def school_has_ai_import(context):
 
     from ai_import.views import _has_ai_import_access
     return _has_ai_import_access(request.user)
+
+
+@register.filter
+def review_points(question):
+    """The "what to check" advice for a flagged question, field by field.
+
+    Usage: {% for point in q|review_points %}{{ point.label }}: {{ point.text }}
+
+    See ai_import.review_points — the preview screens render these instead of
+    hiding the whole reason in the review badge's tooltip.
+    """
+    from ai_import.review_points import review_points as _points
+    return _points(question)
