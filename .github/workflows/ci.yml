@@ -194,6 +194,13 @@ jobs:
               - 'cwa_classroom/billing/**'
             homework:
               - 'cwa_classroom/homework/**'
+              # The homework suite renders the upload preview screen.
+              - 'cwa_classroom/templates/homework/**'
+              # The "What to check" strip every PDF preview screen renders, and
+              # the parser behind it. Each app's suite asserts on its own
+              # screen, so a change to either is a change to all three.
+              - 'cwa_classroom/templates/_partials/**'
+              - 'cwa_classroom/ai_import/review_points.py'
               # The take page renders coding's shared window for a coding item,
               # and coding's plugin builds that window's context.
               - 'cwa_classroom/coding/**'
@@ -207,8 +214,18 @@ jobs:
               - 'cwa_classroom/brainbuzz/**'
             ai_import:
               - 'cwa_classroom/ai_import/**'
+              # The ai_import suite renders the import preview screen.
+              - 'cwa_classroom/templates/ai_import/**'
+              - 'cwa_classroom/templates/_partials/**'
             worksheets:
               - 'cwa_classroom/worksheets/**'
+              # The worksheets suite renders the worksheet preview screen.
+              - 'cwa_classroom/templates/worksheets/**'
+              # The "What to check" strip every PDF preview screen renders, and
+              # the parser behind it. Each app's suite asserts on its own
+              # screen, so a change to either is a change to all three.
+              - 'cwa_classroom/templates/_partials/**'
+              - 'cwa_classroom/ai_import/review_points.py'
               # The builder previews a coding exercise in coding's shared
               # window and runs it through coding:api_preview_run, so the
               # worksheets suite asserts against coding's URLs and templates.

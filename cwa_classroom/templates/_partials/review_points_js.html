@@ -1,0 +1,79 @@
+{% comment %}
+Behaviour for the "What to check" strips (_partials/review_points.html).
+
+A chip scrolls to the field its point is about and rings it for a moment, so a
+flagged question is checked where it is wrong rather than read end to end. The
+strip also clears with the card highlight when "Reviewed" is ticked.
+
+Each screen collapses its cards differently (Alpine's x-show here, a .hidden
+class there), so a card marks its collapsible body `data-review-body` and the
+control that opens it `data-review-expand`; this reveals the body before
+scrolling rather than knowing how the screen hides it.
+
+Include once per page, after the question cards.
+{% endcomment %}
+<style>
+  .review-target-flash {
+    outline: 2px solid #ef4444;
+    outline-offset: 3px;
+    border-radius: 0.5rem;
+  }
+</style>
+<script>
+(function () {
+  function reveal(card) {
+    var body = card.querySelector('[data-review-body]');
+    if (!body || body.offsetParent !== null) return;   // already open (or never collapses)
+    var opener = card.querySelector('[data-review-expand]');
+    if (opener) opener.click();
+  }
+
+  // Opening a card is not always synchronous — Alpine flips x-show on its own
+  // tick, so scrolling straight after the click scrolls to an element that
+  // still has no box and nothing moves. Wait for it to be laid out (bounded, so
+  // a field that legitimately stays hidden doesn't spin).
+  function whenLaidOut(el, fn, tries) {
+    if (el.offsetParent !== null || (tries || 0) > 30) return fn();
+    requestAnimationFrame(function () { whenLaidOut(el, fn, (tries || 0) + 1); });
+  }
+
+  document.addEventListener('click', function (ev) {
+    var chip = ev.target.closest ? ev.target.closest('.review-jump') : null;
+    if (!chip) return;
+    ev.preventDefault();
+    var card = chip.closest('[data-review-card]');
+    if (!card) return;
+    reveal(card);
+    // The options of a multiple-choice question ARE its answer rows, so a
+    // point about the options lands on the answers block. Anything with no
+    // anchor on this screen (an image point on a question that has no image
+    // section, say) falls back to the question text — always present, and
+    // better than a chip that does nothing.
+    var chain = [chip.dataset.reviewJump];
+    if (chain[0] === 'options') chain.push('answer');
+    chain.push('question');
+    var target = null;
+    for (var i = 0; i < chain.length && !target; i++) {
+      target = card.querySelector('[data-review-field="' + chain[i] + '"]');
+    }
+    if (!target) return;
+    whenLaidOut(target, function () {
+      target.scrollIntoView({behavior: 'smooth', block: 'center'});
+      target.classList.add('review-target-flash');
+      setTimeout(function () { target.classList.remove('review-target-flash'); }, 2000);
+      var field = target.querySelector('input, textarea, select');
+      if (field) field.focus({preventScroll: true});
+    });
+  });
+
+  // "Reviewed" clears the strip with the red highlight, and un-ticking brings
+  // it back — the advice is what is still to do.
+  document.addEventListener('change', function (ev) {
+    var cb = ev.target.closest ? ev.target.closest('.review-ack-cb') : null;
+    if (!cb) return;
+    var card = document.getElementById(cb.dataset.card);
+    var strip = card && card.querySelector('.review-points');
+    if (strip) strip.classList.toggle('hidden', cb.checked);
+  });
+})();
+</script>

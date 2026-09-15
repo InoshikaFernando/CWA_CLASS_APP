@@ -103,7 +103,7 @@
     {% for q in questions %}
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 question-card{% if q.needs_review and not q.review_ack %} needs-review{% endif %}"
          x-data="{ expanded: true }"
-         id="question-card-{{ forloop.counter0 }}"
+         id="question-card-{{ forloop.counter0 }}" data-review-card
          data-idx="{{ forloop.counter0 }}">
       <div class="flex items-start gap-3">
         <!-- Include checkbox -->
@@ -114,7 +114,8 @@
 
         <div class="flex-1" :style="$el.closest('.question-card').querySelector('.question-include-cb').checked ? '' : 'pointer-events:none'">
           <!-- Question header -->
-          <div class="flex items-center gap-2 mb-3 cursor-pointer" @click="expanded = !expanded" style="pointer-events:auto">
+          <div class="flex items-center gap-2 mb-3 cursor-pointer" @click="expanded = !expanded" style="pointer-events:auto"
+               data-review-expand>
             <span class="text-xs font-bold text-gray-400">Q{{ forloop.counter }}</span>
             <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase
                          {% if q.question_type == 'multiple_choice' %}bg-blue-100 text-blue-700
@@ -159,9 +160,15 @@
             </svg>
           </div>
 
-          <div x-show="expanded" x-transition class="space-y-3">
+          {% if q.needs_review %}
+          <div class="mb-3" style="pointer-events:auto">
+            {% include "_partials/review_points.html" with q=q idx=forloop.counter0 %}
+          </div>
+          {% endif %}
+
+          <div x-show="expanded" x-transition class="space-y-3" data-review-body>
             <!-- Question text -->
-            <div>
+            <div data-review-field="question">
               <label class="block text-xs font-semibold text-gray-500 mb-1">Question Text</label>
               <textarea name="q_{{ forloop.counter0 }}_text" rows="3"
                         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">{{ q.question_text }}</textarea>
@@ -196,7 +203,7 @@
 
             <!-- Type, Difficulty, Points, Image -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div>
+              <div data-review-field="type">
                 <label class="block text-xs font-semibold text-gray-500 mb-1">Type</label>
                 <select name="q_{{ forloop.counter0 }}_type"
                         onchange="handleTypeChange({{ forloop.counter0 }}, this.value)"
@@ -219,7 +226,7 @@
                 <input type="number" name="q_{{ forloop.counter0 }}_points" value="{{ q.points|default:1 }}" min="1"
                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
               </div>
-              <div>
+              <div data-review-field="image">
                 <label class="block text-xs font-semibold text-gray-500 mb-1">Image</label>
                 <select name="q_{{ forloop.counter0 }}_image_ref" id="img-ref-{{ forloop.counter0 }}"
                         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm image-ref-select">
@@ -388,7 +395,7 @@
             </div>
 
             <!-- Answers -->
-            <div id="answers-section-{{ forloop.counter0 }}" {% if q.question_type == 'column_operation' or q.question_type == 'long_division' or q.question_type == 'plot_points' or q.question_type == 'plot_line' or q.question_type == 'identify_coords' or q.question_type == 'read_graph' or q.question_type == 'measure' or q.question_type == 'number_line' or q.question_type == 'sketch_graph' or q.question_type == 'prime_factorization' %}class="hidden"{% endif %}>
+            <div id="answers-section-{{ forloop.counter0 }}" data-review-field="answer" {% if q.question_type == 'column_operation' or q.question_type == 'long_division' or q.question_type == 'plot_points' or q.question_type == 'plot_line' or q.question_type == 'identify_coords' or q.question_type == 'read_graph' or q.question_type == 'measure' or q.question_type == 'number_line' or q.question_type == 'sketch_graph' or q.question_type == 'prime_factorization' %}class="hidden"{% endif %}>
               <label class="block text-xs font-semibold text-gray-500 mb-1">Answers</label>
               {% if q.answer_warning %}
               <p class="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">⚠ {{ q.answer_warning }}</p>
@@ -416,7 +423,7 @@
             </div>
 
             <!-- Explanation -->
-            <div>
+            <div data-review-field="explanation">
               <label class="block text-xs font-semibold text-gray-500 mb-1">Explanation (optional)</label>
               <input type="text" name="q_{{ forloop.counter0 }}_explanation" value="{{ q.explanation|default:'' }}"
                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
@@ -669,4 +676,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
 {% url 'ai_import:question_preview' session.pk as student_preview_url %}
 {% include 'partials/_student_preview_modal.html' with preview_url=student_preview_url %}
+
+{% include "_partials/review_points_js.html" %}
 {% endblock %}
