@@ -2666,8 +2666,13 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         from classroom.models import ClassRoom
         classrooms = _assignable_classrooms(request.user)
 
+        from ai_import.review_points import unreviewed_questions
+
         return render(request, self.template_name, {
             'session': session,
+            # Flagged questions the teacher submitted without ticking — the
+            # confirm click is what actually creates them.
+            'unreviewed': unreviewed_questions(data.get('questions', [])),
             'included_count': len(included),
             'excluded_count': excluded_count,
             'total_count': len(data.get('questions', [])),

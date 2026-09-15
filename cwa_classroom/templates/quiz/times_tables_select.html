@@ -23,11 +23,11 @@
   </p>
 
   {% comment %}
-  A best score never expires, so a tile that shows only the score says a table
-  practised last term is still known today. The "needs a refresh" nudges come
-  from the LAST attempt instead — nothing is deleted and no score is hidden,
-  the student is just told which ones are getting old. See
-  maths/times_table_freshness.py.
+  Each tile leads with the student's LATEST score and keeps their best beside
+  it. A best score never goes down, so a tile showing only the best says a
+  table practised last term is still known today; showing only the latest would
+  cost a hard-won 100% to one off day. Both, plus the date. See
+  maths/times_table_results.py.
   {% endcomment %}
   {% if refresh_due %}
   <div class="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
@@ -51,13 +51,25 @@
       <!-- How it went last time. This tile used to show nothing at all, which
            left the freshness nudge below with no result to qualify. -->
       <div class="text-xs mb-2 space-y-0.5 {{ tile.wash }}">
-        {% if tile.mul_pct != None or tile.div_pct != None %}
+        {% if tile.mul or tile.div %}
         <p class="text-gray-600">
-          {% if tile.mul_pct != None %}<span class="font-semibold">× {{ tile.mul_pct }}%</span>{% endif %}
-          {% if tile.mul_pct != None and tile.div_pct != None %}<span class="text-gray-300"> | </span>{% endif %}
-          {% if tile.div_pct != None %}<span class="font-semibold">÷ {{ tile.div_pct }}%</span>{% endif %}
+          {% if tile.mul %}<span class="font-semibold">× {{ tile.mul.latest_pct }}%</span>{% endif %}
+          {% if tile.mul and tile.div %}<span class="text-gray-300"> | </span>{% endif %}
+          {% if tile.div %}<span class="font-semibold">÷ {{ tile.div.latest_pct }}%</span>{% endif %}
         </p>
         {% if tile.ago %}<p class="text-gray-400">{{ tile.ago }} ago</p>{% endif %}
+        {% comment %}
+        The best is named only where it beats the latest run — repeating
+        "best 100%" under a 100% result is noise.
+        {% endcomment %}
+        {% if tile.mul.best_pct > tile.mul.latest_pct or tile.div.best_pct > tile.div.latest_pct %}
+        <p class="text-gray-400">
+          best
+          {% if tile.mul.best_pct > tile.mul.latest_pct %}× {{ tile.mul.best_pct }}%{% endif %}
+          {% if tile.mul.best_pct > tile.mul.latest_pct and tile.div.best_pct > tile.div.latest_pct %}<span class="text-gray-300"> | </span>{% endif %}
+          {% if tile.div.best_pct > tile.div.latest_pct %}÷ {{ tile.div.best_pct }}%{% endif %}
+        </p>
+        {% endif %}
         {% else %}
         <p class="text-gray-300">Not tried yet</p>
         {% endif %}

@@ -49,7 +49,7 @@ class WorksheetReviewHighlightTests(TestCase):
     def _card_classes(html, idx):
         """The class attribute of question card `idx` — so a test asserts on the
         card itself, not on the CSS rule that happens to name the same class."""
-        m = re.search(r'<div class="([^"]*)"\s*\n\s*id="q-%d">' % idx, html)
+        m = re.search(r'<div class="([^"]*)"\s*\n\s*id="q-%d"[ >]' % idx, html)
         assert m, f'q-{idx} card not found in the preview'
         return m.group(1)
 
@@ -102,3 +102,53 @@ class WorksheetReviewHighlightTests(TestCase):
         })
         s.refresh_from_db()
         self.assertFalse(s.extracted_data['questions'][0]['review_ack'])
+
+
+class WorksheetReviewPointsTests(WorksheetReviewHighlightTests):
+    """The flagged card says WHAT to check, not just that something is off.
+
+    The reason used to be the review badge's title= tooltip, so a teacher had to
+    hover a 10px badge to learn the second opinion disagreed about the answer —
+    and otherwise re-read the whole question to find it. See
+    ai_import.review_points, which splits the reason into per-field points.
+    """
+
+    _REASON = ("The paper's answer key says B. The AI had chosen option A — the "
+               'key has been applied, please check it matches the option text.')
+
+    def test_the_reason_is_visible_on_the_card(self):
+        html = self._preview_html(self._session(review_reason=self._REASON))
+        self.assertIn('What to check', html)
+        self.assertIn('data-testid="review-point-0-0"', html)
+        self.assertIn('data-testid="review-point-0-1"', html)
+        self.assertIn('check it matches the option text', html)
+
+    def test_a_point_gets_a_chip_to_the_field_it_is_about(self):
+        html = self._preview_html(self._session(
+            review_reason=self._REASON, question_type='multiple_choice',
+            answers=[{'text': 'four', 'is_correct': False},
+                     {'text': 'five', 'is_correct': True}]))
+        self.assertIn('data-review-jump="answer"', html)
+        self.assertIn('data-review-jump="options"', html)
+        # The options of a multiple-choice question are its answer rows, so
+        # that is where an options chip lands.
+        self.assertIn('data-review-field="answer"', html)
+
+    def test_an_unflagged_question_gets_no_strip(self):
+        html = self._preview_html(self._session())
+        self.assertNotIn('data-testid="review-point-1-0"', html)
+
+    def test_the_submit_gate_and_the_question_numbers_are_on_the_page(self):
+        """The warning names questions, so each card has to know its number."""
+        html = self._preview_html(self._session())
+        self.assertIn('data-testid="review-gate"', html)
+        self.assertIn('data-testid="review-gate-continue"', html)
+        self.assertIn('data-review-number="1"', html)
+
+    def test_the_confirm_screen_names_what_came_through_unchecked(self):
+        session = self._session()
+        self.client.force_login(self.teacher)
+        html = self.client.get(
+            reverse('worksheets:confirm', args=[session.pk])).content.decode()
+        self.assertIn('data-testid="unreviewed-notice"', html)
+        self.assertIn('Q1', html)

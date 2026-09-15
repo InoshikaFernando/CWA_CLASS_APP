@@ -120,29 +120,14 @@ class StudentDashboardView(LoginRequiredMixin, View):
             })
 
         # ── Times Tables results ─────────────────────────────────────
-        from classroom.views import _tt_colour, _tt_best
-        tt_results = []
-        for table in range(1, 16):
-            best_mul = _tt_best(user, 'multiplication', table)
-            best_div = _tt_best(user, 'division', table)
-            # Legacy: attempts without operation saved (old records)
-            if not best_mul and not best_div:
-                best_legacy = StudentFinalAnswer.objects.filter(
-                    student=user,
-                    quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
-                    operation='',
-                    table_number=table,
-                ).order_by('-points').first()
-            else:
-                best_legacy = None
-            tt_results.append({
-                'table': table,
-                'mul': best_mul,
-                'div': best_div,
-                'legacy': best_legacy,
-                'mul_colour': _tt_colour(best_mul if best_mul else best_legacy),
-                'div_colour': _tt_colour(best_div),
-            })
+        # Same wall, same builder as classroom.views.StudentDashboardView —
+        # this view renders the SAME student/dashboard.html. Assembling the
+        # tiles separately is how this page ended up without the freshness
+        # nudges the other one had.
+        from classroom.views import _tt_colour
+        from maths import times_table_results
+        tt_results, tt_refresh_due = times_table_results.wall_tiles(
+            user, _tt_colour)
 
         # ── Recent activity ───────────────────────────────────────────
         recent_topic = StudentFinalAnswer.objects.filter(
@@ -171,6 +156,7 @@ class StudentDashboardView(LoginRequiredMixin, View):
             'progress_grid': progress_grid,
             'bf_grid': bf_grid,
             'tt_results': tt_results,
+            'tt_refresh_due': tt_refresh_due,
             'recent_topic': recent_topic,
             'recent_bf': recent_bf,
             'recent_tt': recent_tt,

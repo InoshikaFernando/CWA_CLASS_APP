@@ -452,68 +452,42 @@ def _times_tables_tiles(student, available_tables):
     """One dict per tile on the picker: whether it is unlocked, and how it went.
 
     This page used to offer twelve identical doors. It said nothing about which
-    tables the student had already nailed, which they had never opened, and —
-    the point of this function — which ones they last did so long ago that the
-    score no longer says much. A "you haven't practised this for a while" nudge
-    needs somewhere to sit, and until now the tile showed no result to sit
-    beside.
+    tables the student had already nailed, which they had never opened, and
+    which they last did so long ago that the score no longer says much.
 
-    Best result per operation, freshness from the LATEST attempt, and the
-    per-operation *best* is the shuffled one where the student has one, matching
-    what the dashboard wall shows (``classroom.views._tt_best``).
+    Each tile leads with the student's **latest** score per operation and keeps
+    their best beside it — the same reading the dashboard wall uses, taken from
+    the one shared helper so the two pages cannot disagree about the same table.
+    They already had: this function used to read the highest *score* while the
+    wall read the highest-*points* run, so one page could say 100% where the
+    other said 92%.
     """
-    from maths import times_table_freshness
-    from maths.models import StudentFinalAnswer
+    from maths import times_table_freshness, times_table_results
 
-    # Best % per (table, operation), one query. The picker wants "how well do I
-    # know this table", so it reads the highest score rather than the
-    # highest-points run, which trades accuracy off against speed.
-    best = {}
-    rows = (
-        StudentFinalAnswer.objects
-        .filter(
-            student=student,
-            quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
-            table_number__isnull=False,
-        )
-        .values('table_number', 'operation', 'score', 'total_questions')
-    )
-    for row in rows:
-        if not row['total_questions']:
-            continue
-        # Legacy rows saved no operation; they are multiplication attempts, the
-        # same reading times_table_freshness and progress.reports take.
-        operation = row['operation'] or times_table_freshness.MULTIPLICATION
-        pct = round(row['score'] / row['total_questions'] * 100)
-        key = (row['table_number'], operation)
-        if pct > best.get(key, -1):
-            best[key] = pct
-
-    freshness = times_table_freshness.describe_map(student)
+    results = times_table_results.results_map(student)
 
     tiles = []
     for table in range(1, MAX_TIMES_TABLE + 1):
-        mul_key = (table, times_table_freshness.MULTIPLICATION)
-        div_key = (table, times_table_freshness.DIVISION)
-        mul_fresh = freshness.get(mul_key)
-        div_fresh = freshness.get(div_key)
+        mul = results.get((table, times_table_freshness.MULTIPLICATION))
+        div = results.get((table, times_table_freshness.DIVISION))
         # The tile carries ONE date — the last time this table was touched at
-        # all — so the two operations' freshness is reduced here rather than in
-        # the template, where a missing half is an unresolvable lookup.
-        attempted = [f for f in (mul_fresh, div_fresh) if f]
-        latest = min(attempted, key=lambda f: f['days']) if attempted else None
+        # all — so the two operations are reduced here rather than in the
+        # template, where a missing half is an unresolvable lookup.
+        attempted = [r for r in (mul, div) if r]
+        freshest = (
+            min(attempted, key=lambda r: r['freshness']['days'])['freshness']
+            if attempted else None
+        )
         tiles.append({
             'table': table,
             'unlocked': table in available_tables,
-            'mul_pct': best.get(mul_key),
-            'div_pct': best.get(div_key),
-            'mul_fresh': mul_fresh,
-            'div_fresh': div_fresh,
-            'ago': latest['ago'] if latest else None,
-            'wash': latest['wash'] if latest else '',
+            'mul': mul,
+            'div': div,
+            'ago': freshest['ago'] if freshest else None,
+            'wash': freshest['wash'] if freshest else '',
             'needs_refresh': bool(
-                (mul_fresh and mul_fresh['needs_refresh'])
-                or (div_fresh and div_fresh['needs_refresh'])
+                (mul and mul['freshness']['needs_refresh'])
+                or (div and div['freshness']['needs_refresh'])
             ),
         })
     # Locked tables cannot be practised, so nudging about them would be a

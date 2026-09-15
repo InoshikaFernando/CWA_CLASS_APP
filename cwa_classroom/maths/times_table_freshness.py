@@ -2,10 +2,12 @@
 for today.
 
 The times-tables wall (``classroom.views.StudentDashboardView``) and the table
-picker (``quiz.views.TimesTablesHomeView``) both show a student's **best**
-attempt per table and operation, with no date on it at all. So a dark-green
-7× earned in March still reads as dark green in September, and nothing on
-either page says the child has not multiplied by seven since.
+picker (``quiz.views.TimesTablesHomeView``) show a student's score per table
+and operation with no date on it at all. So a dark-green 7× reads as dark green
+months later, and nothing on either page says the child has not multiplied by
+seven since. (Both pages now lead with the student's LATEST attempt rather than
+their best — see ``maths.times_table_results`` — which makes the score current
+but still says nothing about *when*. That is this module's job.)
 
 That is a *display* problem, and this module fixes it as one. It deletes
 nothing and it recomputes nothing:

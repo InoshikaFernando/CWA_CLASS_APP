@@ -1,0 +1,29 @@
+{% load ai_import_tags %}
+{% comment %}
+"What to check" strip for a question an import guard flagged.
+
+The reason used to live only in the ⚠ Review badge's title= tooltip, so finding
+out what was wrong meant hovering a 10px badge — or, in practice, re-reading the
+whole question. This shows the reason on the card, split into one point per
+field, and each point's chip scrolls to that field and rings it.
+
+Context: q — the question dict; idx — its index on the page. The strip is
+rendered inside the question's card, which carries `data-review-card`; the chips
+scroll within that card.
+{% endcomment %}
+{% if q.needs_review %}
+<div class="review-points rounded-lg border border-red-200 bg-red-50 px-3 py-2 space-y-1.5{% if q.review_ack %} hidden{% endif %}"
+     id="review-points-{{ idx }}" data-review-points="{{ idx }}">
+  <p class="text-[11px] font-bold uppercase tracking-wide text-red-700">What to check</p>
+  {% for point in q|review_points %}
+  <p class="flex items-start gap-2 text-xs text-red-900"
+     data-testid="review-point-{{ idx }}-{{ forloop.counter0 }}">
+    <button type="button"
+            class="review-jump shrink-0 px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-bold hover:bg-red-200"
+            data-review-jump="{{ point.field }}"
+            title="Go to the {{ point.label|lower }} on this question">{{ point.label }}</button>
+    <span>{{ point.text }}</span>
+  </p>
+  {% endfor %}
+</div>
+{% endif %}
