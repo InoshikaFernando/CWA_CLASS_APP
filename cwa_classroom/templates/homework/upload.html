@@ -63,22 +63,11 @@
           {% include "_partials/page_selection_field.html" with ps_accent="blue-500" %}
         </div>
 
-        <!-- Name-the-shape mode -->
-        <div class="mb-5">
-          <label class="flex items-start gap-3 p-3 rounded-xl border border-gray-200 hover:border-blue-300 cursor-pointer transition">
-            <input type="checkbox" name="shape_naming" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-            <span>
-              <span class="block text-sm font-medium text-gray-700">Name-the-shape mode</span>
-              <span class="block text-xs text-gray-500 mt-0.5">For a sheet of shapes — AI crops each shape and makes a separate "What is the name of this shape?" question. Leave off for normal worksheets.</span>
-            </span>
-          </label>
-        </div>
-
         <!-- Info box -->
         <div class="mb-6 p-4 bg-blue-50 rounded-xl border border-blue-100 text-sm text-blue-800">
           <p class="font-semibold mb-1">What happens next</p>
           <ol class="list-decimal list-inside space-y-1 text-blue-700">
-            <li>Claude reads your PDF and extracts every question.</li>
+            <li>Claude reads your PDF and extracts every question. A sheet or section of shapes to identify is detected automatically — each shape becomes its own "What is the name of this shape?" question, alongside the page's other questions.</li>
             <li>You review and edit questions, set grading type (auto / AI / teacher).</li>
             <li>Confirm to save and assign to your class.</li>
           </ol>

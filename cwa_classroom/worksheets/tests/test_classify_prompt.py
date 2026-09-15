@@ -29,7 +29,7 @@ class _FakeStream:
         return resp
 
 
-def _capture_prompt(shape_naming=False):
+def _capture_prompt():
     captured = {}
     client = MagicMock()
 
@@ -40,7 +40,7 @@ def _capture_prompt(shape_naming=False):
     client.messages.stream.side_effect = stream
     pages = [{'page_num': 1, 'screenshot': 'x', 'screenshot_w': 10,
               'screenshot_h': 10, 'text': 't'}]
-    services._classify_page_chunk(client, 'sys', pages, 1, shape_naming=shape_naming)
+    services._classify_page_chunk(client, 'sys', pages, 1)
     return ' '.join(b['text'] for b in captured['messages'][0]['content']
                     if b.get('type') == 'text')
 
@@ -55,7 +55,11 @@ def test_chunk_prompt_uses_necessity_not_eager_wording():
     assert 'answer options' in txt
 
 
-def test_shape_naming_prompt_still_requests_images():
-    # Name-the-shape mode legitimately wants one boxed image per shape.
-    txt = _capture_prompt(shape_naming=True)
+def test_chunk_prompt_asks_for_one_name_the_shape_item_per_shape():
+    # There is no separate shape mode any more: the same request tells the model
+    # that a sheet of shapes is one name_the_shape question per shape, each with
+    # its own tight box, alongside the page's ordinary questions.
+    txt = _capture_prompt()
+    assert 'name_the_shape' in txt
+    assert 'PER shape' in txt
     assert 'has_image=true' in txt

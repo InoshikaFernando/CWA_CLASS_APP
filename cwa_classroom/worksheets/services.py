@@ -455,7 +455,6 @@ SCREENSHOT_DPI = int(os.environ.get('WORKSHEET_SCREENSHOT_DPI', '150'))
 # figures onto one page; extra pixels give Claude finer coordinates to localise each
 # shape, so the per-shape bboxes come back tighter. Bbox *correctness* is DPI-independent
 # (coords convert via each page's stored dims) — this only improves placement precision.
-SHAPE_NAMING_DPI = int(os.environ.get('WORKSHEET_SHAPE_NAMING_DPI', '200'))
 
 # DPI for the FINAL rendered question-image crop. This is independent of the
 # page-screenshot DPI: the screenshot only needs to be legible enough for Claude
@@ -600,6 +599,17 @@ EXTRACTED_QUESTION_TYPE_CHOICES = [
 
 EXTRACTED_QUESTION_TYPES = [value for value, _label in EXTRACTED_QUESTION_TYPE_CHOICES]
 
+# An EXTRACTOR-ONLY type. A sheet that merely displays shapes for the student to
+# identify used to need a separate "name-the-shape mode" ticked at upload, which
+# only worked when the whole PDF was one thing; real sheets mix a row of shapes
+# with ordinary questions. The classifier now emits ``name_the_shape`` per shape
+# itself (rule 19 in the prompt), and ``_normalise_name_the_shape`` turns each
+# into the multiple-choice question the app already renders and grades before
+# the preview sees it — so this value is in the schema enum but never in the
+# review dropdown or the question bank.
+NAME_THE_SHAPE_TYPE = 'name_the_shape'
+NAME_THE_SHAPE_TEXT = 'What is the name of this shape?'
+
 
 # Which structured-spec panel a review card shows for a given question type.
 #
@@ -721,7 +731,7 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                         },
                         "question_type": {
                             "type": "string",
-                            "enum": list(EXTRACTED_QUESTION_TYPES),
+                            "enum": list(EXTRACTED_QUESTION_TYPES) + [NAME_THE_SHAPE_TYPE],
                         },
                         "plane_spec": {
                             "type": "object",
@@ -1132,6 +1142,32 @@ Rules:
    finished drawing must show in grading_rubric so the teacher can mark it on paper. Keep
    the question (do not drop it) — the app deselects teacher-graded questions by default
    and the teacher decides.
+19. NAME-THE-SHAPE ITEMS (detected by you — there is no separate mode): a sheet, section,
+   chart, grid or row that DISPLAYS shapes for the student to identify — shapes with no
+   question text of their own, or under an instruction like "name each shape", "write the
+   name of each shape", "what is this shape called?", possibly with the names already
+   printed beside them — is ONE question PER individual shape, emitted alongside whatever
+   ordinary questions the same page carries. If a page shows 8 such shapes, return 8
+   questions; never group several shapes into one. For each shape set exactly:
+   - question_type = "name_the_shape"
+   - question_text = "What is the name of this shape?"
+   - has_image = true and image_bbox = a TIGHT box around ONLY that one shape — never a
+     neighbouring shape, and never the shape's printed name, a question number or a heading;
+     a few pixels of margin around the shape itself.
+   - answers = the correct shape name (is_correct=true) plus exactly 3 plausible wrong names
+     a learner might confuse it with (square ↔ rectangle / rhombus; circle ↔ oval; pentagon ↔
+     hexagon; triangle types). Never repeat the correct name as a distractor.
+   - validation_type = "auto". difficulty 1 for circle / square / triangle / rectangle, 2 for
+     trapezium / parallelogram / rhombus / pentagon / hexagon / octagon, 3 for 3-D solids.
+   - explanation = ONE short sentence on the defining property ("A triangle has 3 straight
+     sides and 3 angles.").
+   - subject "Mathematics", strand "Geometry", topic "2D Shapes" (or "3D Shapes" for solids).
+   Identify each shape yourself from the picture. A name printed on the sheet is the ANSWER
+   and must never appear in question_text. Prefer a specific name only when it is clearly
+   distinguishable ("Equilateral triangle", "Rectangle"); otherwise use the general one
+   ("Triangle", "Quadrilateral"). This is NOT for a shape that is merely the figure of an
+   ordinary question ("find the area of this rectangle", "colour the triangles") — that
+   question keeps its own type and its figure (rules 3, 14).
    EXCEPTIONS, because the app draws these answer surfaces itself — keep them as their own
    question type with validation_type="auto": marking or reading a horizontal NUMBER LINE
    (rule 14), plotting/joining points on a CARTESIAN PLANE (rule 11), LONG DIVISION
@@ -1204,43 +1240,6 @@ For extended_answer questions (ai_graded / human_graded):
   valid reasoning chains — the rubric must accept all of them."""
 
 
-SHAPE_NAMING_SYSTEM_PROMPT = """You are building "name the shape" practice questions from a worksheet that DISPLAYS shapes.
-
-The worksheet shows one or more SHAPES — a chart, grid, row, or scattered set, possibly
-already labelled. Your job is to turn EACH INDIVIDUAL shape into its OWN question.
-
-Rules:
-1. Emit ONE question PER individual shape. If the page shows 8 shapes, return 8 questions.
-   - Never group multiple shapes into one question.
-   - Ignore any shape names already printed on the sheet — you are generating fresh
-     questions, so do not leak the answer into question_text.
-2. For EVERY shape question, set exactly:
-   - question_text = "What is the name of this shape?"
-   - question_type = "multiple_choice"
-   - validation_type = "auto"
-   - has_image = true
-   - image_bbox = a TIGHT pixel box around ONLY that ONE shape in the page screenshot.
-       * One shape per box. Never include a neighbouring shape.
-       * Do NOT include the shape's printed name/label, question numbers, or headings.
-       * Leave only a few pixels of margin around the shape itself.
-       * Coordinates are [left, top, right, bottom] in the page screenshot's pixel space.
-   - answers = the CORRECT shape name (is_correct=true) PLUS exactly 3 plausible wrong
-     shape names (is_correct=false). Distractors must be real shapes a learner might
-     confuse it with (square ↔ rectangle / rhombus; circle ↔ oval / ellipse;
-     triangle types; pentagon ↔ hexagon). Never repeat the correct name as a distractor.
-   - difficulty = 1 for common shapes (circle, square, triangle, rectangle); 2 for
-     less common ones (trapezium, parallelogram, rhombus, pentagon, hexagon, octagon);
-     3 for advanced/3-D solids.
-   - explanation = ONE short sentence on the defining property
-     (e.g. "A triangle has 3 straight sides and 3 angles.").
-3. Identify each shape yourself from the picture. Use standard names. Prefer a specific
-   name only when clearly distinguishable (e.g. "Rectangle", "Equilateral triangle");
-   otherwise use the general name ("Triangle", "Quadrilateral").
-4. Classification: subject "Mathematics", strand "Geometry", topic "2D Shapes"
-   (or "3D Shapes" for solids). Use the year level implied by the sheet, default 1.
-5. In this mode emit ONLY shape-naming questions — skip any non-shape text questions."""
-
-
 def _get_anthropic_client():
     import anthropic
     # PDF classification can take 60-90s for large worksheets — raise the
@@ -1256,14 +1255,13 @@ def _get_anthropic_client():
     )
 
 
-def _build_system_prompt(existing_topics, existing_levels, shape_naming=False):
+def _build_system_prompt(existing_topics, existing_levels):
     topic_names = ', '.join(t['name'] for t in existing_topics) if existing_topics else 'None yet'
     level_names = ', '.join(
         f"Year {l['level_number']}" for l in existing_levels if l['level_number'] <= 12
     ) if existing_levels else 'Year 1–8'
-    base = SHAPE_NAMING_SYSTEM_PROMPT if shape_naming else WORKSHEET_SYSTEM_PROMPT
     return (
-        base
+        WORKSHEET_SYSTEM_PROMPT
         + f"\n\nExisting topics in the system: {topic_names}"
         + f"\nAvailable year levels: {level_names}"
         + "\nMap to existing topics where possible."
@@ -1512,28 +1510,64 @@ def _stream_classification(client, system, tools, content_blocks):
         return stream.get_final_message()
 
 
-def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=False):
+def _normalise_name_the_shape(questions):
+    """Turn each ``name_the_shape`` item the model emitted into the multiple-choice
+    question the app renders and grades, marked ``shape_naming`` for the preview.
+
+    The type exists only so the model can say "this is a shape to identify" per
+    item (rule 19). What the bank stores is a multiple-choice question with the
+    cropped shape as its figure — exactly what the old whole-PDF mode produced,
+    now item by item and mixed with ordinary questions. Anything that would make
+    such a question unanswerable — no figure box to crop the shape from, no
+    single correct option — is sent to review with the reason rather than saved
+    looking complete. Returns how many items were normalised.
+    """
+    count = 0
+    for q in questions or []:
+        if not isinstance(q, dict) or q.get('question_type') != NAME_THE_SHAPE_TYPE:
+            continue
+        count += 1
+        q['question_type'] = 'multiple_choice'
+        q['shape_naming'] = True
+        q['validation_type'] = 'auto'
+        q['has_image'] = True
+        if not (q.get('question_text') or '').strip():
+            q['question_text'] = NAME_THE_SHAPE_TEXT
+        q.setdefault('subject', 'Mathematics')
+        q.setdefault('strand', 'Geometry')
+        q.setdefault('topic', '2D Shapes')
+
+        problems = []
+        bbox = q.get('image_bbox')
+        if not bbox or len(bbox) != 4:
+            problems.append('no box was given for the shape, so there is no picture to name')
+        answers = [a for a in (q.get('answers') or []) if isinstance(a, dict)]
+        correct = [a for a in answers if a.get('is_correct')]
+        if len(correct) != 1:
+            problems.append(
+                f'{len(correct)} options are ticked correct (there must be exactly one)')
+        elif len(answers) < 2:
+            problems.append('only one option was offered — a choice needs distractors')
+        if problems:
+            q['needs_review'] = True
+            reason = 'Name-the-shape item: ' + '; '.join(problems) + '.'
+            existing = (q.get('review_reason') or '').strip()
+            q['review_reason'] = f'{existing} {reason}'.strip()
+    return count
+
+
+def _classify_page_chunk(client, system, pages, total_page_count):
     """Classify one chunk of pages in a single streamed Claude call.
 
     Each page carries its absolute page_num label, so the returned image_bbox
     page numbers are absolute — chunks can be merged without remapping. Raises
     ValueError if no structured result comes back.
-
-    ``shape_naming`` swaps the user-facing instructions for the name-the-shape
-    workflow (one question per individual shape).
     """
-    if shape_naming:
-        intro = (
-            f"These pages are part of a {total_page_count}-page shapes worksheet. "
-            "I'm sending each page as a screenshot. Generate one 'name the shape' "
-            "question for EACH individual shape using the classify_worksheet_questions tool."
-        )
-    else:
-        intro = (
-            f"These pages are part of a {total_page_count}-page homework worksheet. "
-            "I'm sending each page as a screenshot. Extract ALL questions on these "
-            "pages using the classify_worksheet_questions tool."
-        )
+    intro = (
+        f"These pages are part of a {total_page_count}-page homework worksheet. "
+        "I'm sending each page as a screenshot. Extract ALL questions on these "
+        "pages using the classify_worksheet_questions tool."
+    )
     # The model sometimes reports a page's POSITION in this request instead of
     # its number (page 7, sent third in the chunk 5–8, came back as page 3 and
     # its figure was cropped from page 3). Name the real numbers up front; the
@@ -1566,17 +1600,7 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
                 f"Text: {page['text'][:600]}]"
             ),
         })
-    if shape_naming:
-        closing = (
-            "Generate one question per INDIVIDUAL shape on these pages. For each shape: "
-            "question_text=\"What is the name of this shape?\", question_type=multiple_choice, "
-            "has_image=true, and image_bbox [left, top, right, bottom] tightly around ONLY "
-            "that single shape in the page screenshot's pixel coordinates. Provide the correct "
-            "shape name plus 3 plausible wrong shape names as answers. "
-            "Use the classify_worksheet_questions tool now."
-        )
-    else:
-        closing = (
+    closing = (
             "Extract ALL questions on these pages. Set has_image=true ONLY when the question "
             "cannot be answered from its text alone — the figure carries information the wording "
             "does not (e.g. an unlabelled shape to measure, a graph to read off, a diagram whose "
@@ -1598,6 +1622,10 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
             "showing the vertex, the intercepts and the axis of symmetry\" "
             "(question_type sketch_graph, with sketch_spec) — are the "
             "exception: the app draws those, so keep them auto. "
+            "A sheet, grid or row that just DISPLAYS shapes to identify is one "
+            "name_the_shape question PER shape, each with has_image=true and a tight "
+            "image_bbox around only that shape (rule 19) — alongside the page's other "
+            "questions. "
             "Use the classify_worksheet_questions tool now."
         )
     content_blocks.append({
@@ -1658,6 +1686,7 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
                 if from_label:
                     q['source_number'] = from_label
             q['question_text'] = _strip_question_label(raw_text)
+    _normalise_name_the_shape(result['questions'])
     result['usage'] = {
         'input_tokens': response.usage.input_tokens,
         'output_tokens': response.usage.output_tokens,
@@ -1666,8 +1695,7 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
     return result
 
 
-def _classify_chunk_adaptive(client, system, pages, total_page_count,
-                             shape_naming=False, report=None):
+def _classify_chunk_adaptive(client, system, pages, total_page_count, report=None):
     """Classify a chunk, halving it and retrying if the model runs out of output.
 
     A chunk that overflows max_tokens returns nothing usable, and one such chunk
@@ -1680,8 +1708,7 @@ def _classify_chunk_adaptive(client, system, pages, total_page_count,
     """
     report = report or (lambda _msg: None)
     try:
-        return _classify_page_chunk(client, system, pages, total_page_count,
-                                    shape_naming=shape_naming)
+        return _classify_page_chunk(client, system, pages, total_page_count)
     except ChunkTooDenseError:
         if len(pages) == 1:
             raise ValueError(
@@ -1699,8 +1726,7 @@ def _classify_chunk_adaptive(client, system, pages, total_page_count,
         report(f'Page {pages[0]["page_num"]}–{pages[-1]["page_num"]} is dense — '
                f'reading it in smaller pieces…')
         return _merge_chunk_results([
-            _classify_chunk_adaptive(client, system, half, total_page_count,
-                                     shape_naming=shape_naming, report=report)
+            _classify_chunk_adaptive(client, system, half, total_page_count, report=report)
             for half in halves
         ])
 
@@ -1734,16 +1760,13 @@ def _merge_chunk_results(results):
 
 
 def classify_worksheet_questions(extracted_pages, existing_topics, existing_levels,
-                                 shape_naming=False, progress=None):
+                                 progress=None):
     """Send page screenshots to Claude and get structured questions with image bboxes.
 
     Multi-page worksheets are split into page-chunks classified *concurrently*
     (CPP: speed). Each chunk generates a fraction of the output and they run at
     the same time, so wall-clock ≈ the slowest chunk rather than the sum. Single
     short worksheets fall through to one call. Results are merged in page order.
-
-    ``shape_naming`` switches to the name-the-shape prompt: one auto-generated
-    "What is the name of this shape?" question per individual shape.
 
     Pages that carry no questions — a bubble answer sheet, a worked answer key —
     are detected from their text and never sent, so they cost nothing and can't
@@ -1755,7 +1778,7 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
     """
     report = progress or (lambda _msg: None)
     client = _get_anthropic_client()
-    system = _build_system_prompt(existing_topics, existing_levels, shape_naming=shape_naming)
+    system = _build_system_prompt(existing_topics, existing_levels)
 
     with_screenshots = [p for p in extracted_pages['pages'] if p.get('screenshot')]
     pages = with_screenshots[:WORKSHEET_PAGE_CAP]
@@ -1800,14 +1823,14 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
     if len(chunks) == 1:
         report(f'Reading {len(pages)} page(s)…')
         result = _classify_chunk_adaptive(
-            client, system, chunks[0], total, shape_naming=shape_naming, report=report)
+            client, system, chunks[0], total, report=report)
     else:
         report(f'Reading {len(pages)} pages in {len(chunks)} sections…')
         ordered = [None] * len(chunks)
         with ThreadPoolExecutor(max_workers=min(WORKSHEET_MAX_PARALLEL, len(chunks))) as pool:
             futures = {
                 pool.submit(_classify_chunk_adaptive, client, system, chunk, total,
-                            shape_naming=shape_naming, report=report): idx
+                            report=report): idx
                 for idx, chunk in enumerate(chunks)
             }
             for done, fut in enumerate(as_completed(futures), start=1):
@@ -2463,16 +2486,12 @@ def recrop_pdf_region(pdf_bytes, page_index, frac_box, dpi=None, snap=False):
 # ---------------------------------------------------------------------------
 
 def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
-                                   shape_naming=False, progress=None,
-                                   page_selection=None):
+                                   progress=None, page_selection=None):
     """
     Full pipeline: PDF → page screenshots → AI classify → render image regions.
 
     Keeps the fitz.Document open throughout so we can render clips from
     the original PDF vectors rather than cropping JPEG screenshots.
-
-    ``shape_naming`` enables name-the-shape mode: pages are rendered at a higher
-    DPI and Claude emits one "name this shape" question per individual shape.
 
     ``page_selection`` is the teacher's print-dialog style page spec (``"2-7, 9"``;
     blank/``None`` means every page — see ``worksheets/page_selection.py``). Only
@@ -2506,7 +2525,7 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
         selected = parse_page_selection(page_selection, len(doc))
         summary = selection_summary(page_selection, selected, len(doc))
 
-        # Step 1: render pages + collect text (higher DPI in shape mode for tighter crops)
+        # Step 1: render pages + collect text
         if summary['excluded']:
             report(
                 f'Opening the PDF — reading page(s) {summary["selected_label"]} '
@@ -2514,15 +2533,11 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
             )
         else:
             report(f'Opening the PDF ({len(doc)} page(s))…')
-        extracted_pages = extract_worksheet_pages(
-            doc, screenshot_dpi=SHAPE_NAMING_DPI if shape_naming else None,
-            selected_pages=selected,
-        )
+        extracted_pages = extract_worksheet_pages(doc, selected_pages=selected)
 
         # Step 2: AI classification (gets question text, type, answers, image bboxes)
         result = classify_worksheet_questions(
-            extracted_pages, existing_topics, existing_levels, shape_naming=shape_naming,
-            progress=report,
+            extracted_pages, existing_topics, existing_levels, progress=report,
         )
         result['page_selection'] = summary
 

@@ -40,10 +40,6 @@ class HomeworkUploadSession(models.Model):
         max_length=200, blank=True,
         help_text='Pages to extract, like "2-7, 9". Blank extracts every page.',
     )
-    shape_naming = models.BooleanField(
-        default=False,
-        help_text='Name-the-shape mode: AI generates one "name this shape" question per shape.',
-    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PROCESSING)
     error_message = models.TextField(blank=True)
     # Live heartbeat from the background worker: what it is doing right now, and
