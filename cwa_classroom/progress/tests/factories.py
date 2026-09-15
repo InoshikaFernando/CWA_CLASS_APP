@@ -112,6 +112,20 @@ def enrol(classroom, student, joined_days_ago=90):
     return link
 
 
+def join_school(school, student, active=True):
+    """Enrol *student* at *school* itself, not just in one of its classes.
+
+    The whole-school outreach (CPP-422) walks ``SchoolStudent``, which is the
+    only record of a child who belongs to the institute but is in no class —
+    exactly the cohort that used to hear nothing.
+    """
+    from classroom.models import SchoolStudent
+
+    return SchoolStudent.objects.create(
+        school=school, student=student, is_active=active,
+    )
+
+
 def add_teacher(classroom, teacher):
     ClassTeacher.objects.create(classroom=classroom, teacher=teacher)
     if classroom.school_id:
@@ -191,6 +205,7 @@ def enable_reports(school, scope=None, kind='school', **flags):
     fields = (
         report_settings.PERIOD_FIELDS
         + report_settings.DELIVERY_FIELDS
+        + report_settings.OUTREACH_FIELDS
         + report_settings.SCHEDULE_FIELDS
         + report_settings.CONTENT_FIELDS
         + ('mode',)

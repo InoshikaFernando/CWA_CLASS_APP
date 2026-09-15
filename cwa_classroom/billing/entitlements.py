@@ -755,8 +755,76 @@ def codes_on_subscription(subscription):
     return [code for code in codes if code is not None]
 
 
+def upgrade_student_from_basic(subscription, granted_by=None):
+    """Move a Student Basic student onto the paid tier they have just bought.
+
+    The end of the free promotion, and the only automatic way off Student Basic.
+    A student who took a fourteen-day code worked without the AI-graded
+    questions; when the window closed they were walled, they paid, and this is
+    what makes the thing they paid for arrive. Before it existed there was no
+    route at all: ``StudentAIGradingView`` deliberately records interest rather
+    than selling, so somebody had to notice the payment and run
+    ``student_modules --revoke basic`` by hand.
+
+    Two writes, and the second is not redundant:
+
+    * ``student_basic`` is revoked — the promotion is over, and leaving it
+      attached would keep withholding the questions.
+    * ``student_ai_grading`` is granted — because revoking Basic only returns
+      the student to "no opinion", and for a student inside a school that means
+      their *school's* plan decides. A school that never bought AI grading would
+      leave them exactly where they started, having just paid to leave. The
+      add-on says it explicitly and outranks everything else
+      (:func:`student_module_ai_verdict`).
+
+    **Only ever an upgrade.** A student who is not on Student Basic is left
+    untouched, so an ordinary subscriber paying an ordinary invoice is never
+    handed a module they did not buy, and the school rules keep deciding for
+    them exactly as they do today.
+
+    **Only ever on a paid subscription.** ``stripe_subscription_id`` is the
+    proof: a code that grants Student Basic must be 100% off (the model refuses
+    anything else), and a 100% code skips Stripe entirely, so a subscription
+    carrying both that code and a Stripe id is one where the student has since
+    paid for real.
+
+    Returns the ``student_ai_grading`` row when it upgraded somebody, else None.
+    """
+    from billing.models import StudentModule
+
+    if subscription is None or subscription.user_id is None:
+        return None
+    if not subscription.stripe_subscription_id:
+        return None
+    user = subscription.user
+    if StudentModule.MODULE_BASIC not in active_student_modules(user):
+        return None
+
+    revoke_student_module(user, StudentModule.MODULE_BASIC)
+    row, _changed = grant_student_module(
+        user, StudentModule.MODULE_AI_GRADING, granted_by=granted_by,
+        note='Upgraded from Student Basic when the subscription was paid.',
+    )
+
+    # Worth proving later: this is the moment a student stopped being on the
+    # free edition, and it happens without anybody watching. log_event swallows
+    # its own errors, so it can never cost somebody their upgrade.
+    try:
+        from audit.services import log_event
+        log_event(
+            user=user, school=None, category='billing',
+            action='student_basic_upgraded_on_payment',
+            detail={'subscription_id': subscription.pk,
+                    'stripe_subscription_id': subscription.stripe_subscription_id},
+        )
+    except Exception:  # noqa: BLE001 — the upgrade is the point, not the log
+        logger.exception(
+            'Could not log the Student Basic upgrade for user %s', user.pk)
+    return row
+
+
 def sync_student_modules(subscription, granted_by=None):
-    """Bring a subscription's modules into line with the code that activated it.
+    """Bring a subscription's modules into line with how it was activated.
 
     **Called when a subscription becomes real, not when a code is typed.** That
     distinction is the whole point of this function. A promotion code that
@@ -767,15 +835,44 @@ def sync_student_modules(subscription, granted_by=None):
     so a half-price promotion would have quietly handed out the AI-graded
     questions it was sold without.
 
-    Idempotent by construction (``grant_student_module`` is), so every
-    activation path can call it, the webhook and the success page can both fire,
-    and the result is the same one row.
+    **A student already on Student Basic who now has a Stripe subscription is
+    upgrading, not re-starting.** The code stays recorded on the subscription
+    forever — it is the answer to "why does this student pay nothing", and
+    clearing it would lose that. So when the student later pays, this function
+    is called again on the same row, reads the same promotional code, and would
+    put them straight back on the free edition, undoing the purchase they just
+    made. That case is caught here, ahead of the codes, by
+    :func:`upgrade_student_from_basic` — one entry point, so no caller can get
+    the order wrong or forget the upgrade exists.
+
+    The check is deliberately the student's CURRENT modules rather than "this
+    subscription has a Stripe id". Both answer the promotion case identically
+    (a code that grants Student Basic must be 100% off, and a 100% code never
+    reaches Stripe, so a Stripe id on one means the student has since paid), but
+    the narrow version cannot change what happens to anybody who was never on
+    the promotion — which is every other student on the site.
+
+    Idempotent either way (``grant_student_module`` and the upgrade both are),
+    so every activation path can call it, the webhook and the success page can
+    both fire, and the result is the same one row.
 
     Returns the module rows it granted, which is ``[]`` for every subscription
     whose code carries no tier — i.e. all of them today.
     """
     if subscription is None or subscription.user_id is None:
         return []
+    if subscription.stripe_subscription_id:
+        from billing.models import StudentModule
+        held = active_student_modules(subscription.user)
+        # Already upgraded, on an earlier run of this same activation. Reading
+        # the promotional code again here is exactly what would put them back
+        # on the free edition, so stop before it.
+        if StudentModule.MODULE_AI_GRADING in held:
+            return []
+        # On Student Basic, and now paying: the promotion is over.
+        if StudentModule.MODULE_BASIC in held:
+            row = upgrade_student_from_basic(subscription, granted_by=granted_by)
+            return [row] if row is not None else []
     granted = []
     for code in codes_on_subscription(subscription):
         row = apply_code_student_modules(

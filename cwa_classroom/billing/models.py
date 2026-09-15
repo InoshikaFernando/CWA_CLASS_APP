@@ -750,6 +750,38 @@ class Subscription(models.Model):
         return bool(self.promo_code_used)
 
     @property
+    def is_free_grant(self):
+        """Access a promotion code handed over, rather than access that was bought.
+
+        Two facts together, and both are needed:
+
+        ``stripe_subscription_id`` is empty
+            Nothing exists in Stripe to renew this, to bill it, or to move its
+            status on. Whatever the ``status`` column says today is what it will
+            say forever unless this app changes it.
+        ``trial_end`` is set
+            The code named a window (``grant_days``), so the access has an end.
+
+        A subscription with no end date is not a grant in this sense — a free
+        *plan* costs nothing and runs indefinitely, and ``grant_free_access``
+        deliberately writes ``trial_end=None`` to say so.
+        """
+        return not self.stripe_subscription_id and self.trial_end is not None
+
+    @property
+    def free_grant_has_lapsed(self):
+        """Has a code-granted window run out?
+
+        Asked instead of reading ``status``, because ``status`` cannot answer it.
+        The two 100%-off redemption paths disagree about which word to write —
+        ``ApplyPromoCodeView`` writes ``active``, the discount-code branch beside
+        it writes ``trialing`` — and only one of those was ever treated as
+        expirable. The code granted fourteen days either way, so the end date is
+        the truth and the word is not.
+        """
+        return self.is_free_grant and timezone.now() > self.trial_end
+
+    @property
     def is_active_or_trialing(self):
         return self.status in (self.STATUS_ACTIVE, self.STATUS_TRIALING)
 

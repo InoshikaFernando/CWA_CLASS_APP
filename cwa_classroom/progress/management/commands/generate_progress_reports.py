@@ -174,3 +174,47 @@ class Command(BaseCommand):
                 f'{counts["notified"]} notified, {counts["emailed"]} parent email(s)'
             )
         self.stdout.write(self.style.SUCCESS(line))
+        self._report_notices(counts, dry_run)
+
+    def _report_notices(self, counts, dry_run):
+        """The whole-school half of the run (CPP-422).
+
+        Printed on its own line rather than folded into the one above, because
+        it answers a different question — not "how did the students who are
+        reporting do" but "who had nothing to show, and why". A school that has
+        not switched whole-school coverage on has a zero cohort and gets no
+        line at all; that is the default, not a failure.
+        """
+        if not counts.get('notices'):
+            return
+
+        by_reason = counts.get('notices_by_reason') or {}
+        breakdown = ', '.join(
+            f'{number} {reason.replace("_", " ")}'
+            for reason, number in sorted(by_reason.items())
+            if number
+        )
+        if dry_run:
+            # See run_period: a dry run cannot know who was active, so this is
+            # the students no enabled class holds — a floor, and saying so is
+            # the difference between a caveat and a wrong number.
+            self.stdout.write(
+                f'  whole school: at least {counts["notices"]} student(s) would '
+                f'have nothing to show ({breakdown}). A dry run does not compute '
+                f'activity, so the real figure is this or higher.'
+            )
+            return
+
+        line = (
+            f'  whole school: {counts["notices"]} student(s) with nothing to '
+            f'show ({breakdown}); {counts["notices_emailed"]} note(s) sent to '
+            f'{counts["notices_recipients"]} parent address(es)'
+        )
+        if counts.get('notices_undelivered'):
+            # Never silent: a note recorded but delivered to nobody is the
+            # failure this feature exists to prevent, not a rounding error.
+            line += (
+                f'; {counts["notices_undelivered"]} reached nobody '
+                f'(no parent email on file, or delivery failed)'
+            )
+        self.stdout.write(self.style.SUCCESS(line))

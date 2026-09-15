@@ -390,6 +390,13 @@ MIDDLEWARE = [
 # deploy. Flip with MODULE_ENFORCEMENT=enforce in the environment.
 MODULE_ENFORCEMENT = os.environ.get('MODULE_ENFORCEMENT', 'shadow')
 
+# Feature flags (ops.flags). Rollout lives in the DATABASE, not here, so test
+# and production disagree by default and promoting code never promotes the
+# decision to switch it on. This is only the emergency brake: a comma-separated
+# list of slugs forced off whatever their row says, for when production needs a
+# feature dark now and a database round trip is not the path you want.
+FEATURE_FLAGS_OFF = os.environ.get('FEATURE_FLAGS_OFF', '')
+
 # Slow-query diagnostics: wrap the request early (near the top of MIDDLEWARE) so
 # it counts queries from every downstream layer, not just the view.
 MIDDLEWARE.insert(1, 'cwa_classroom.middleware.SlowQueryLoggingMiddleware')

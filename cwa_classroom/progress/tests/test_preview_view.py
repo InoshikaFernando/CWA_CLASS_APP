@@ -384,12 +384,17 @@ class EmptyScopeReasonTests(PreviewBase):
         # The old message would have sent them to switch on what is already on.
         self.assertNotContains(response, 'has this report switched on')
 
-    def test_a_term_that_has_not_finished_is_reported_as_the_window_it_is(self):
+    def test_a_school_with_no_terms_at_all_is_told_that(self):
         """The one empty case the page already got right — pinned, not changed.
 
         A missing term window is shown by the ``period_label`` branch further
         up the template, which short-circuits before the empty-rows block. So
         this never wore the settings message, and must not start wearing it.
+
+        The wording changed with CPP-425: this school has no terms on its
+        calendar at all, which the old "no term has ended yet" described
+        wrongly — a term IS reviewable now while it is still running, so "not
+        ended" is no longer the same thing as "nothing to show".
         """
         enable_reports(self.school, kind='school', term=True)
 
@@ -397,7 +402,7 @@ class EmptyScopeReasonTests(PreviewBase):
 
         self.assertIsNone(response.context['start'])
         self.assertEqual(response.context['empty_reason'], 'no_period')
-        self.assertContains(response, 'No term has ended yet')
+        self.assertContains(response, 'no terms on its calendar')
         self.assertNotContains(response, 'has this report switched on')
 
     def test_a_scope_with_rows_reports_no_reason_at_all(self):

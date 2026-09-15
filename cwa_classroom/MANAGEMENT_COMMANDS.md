@@ -105,6 +105,55 @@ python manage.py student_modules --grant ai_grading --user ada   # sell it back
 python manage.py student_modules --revoke basic --user ada
 ```
 
+### `free_trial_code`
+Mint the code that gives a cohort a fixed, free, card-free run of the app — the
+MHM promotion. Sets the three fields that have to agree and each fail quietly on
+their own: 100% off (so Stripe is never reached and no card is asked for),
+`grant_days` (so the access actually ends), and `grants_student_basic` (so the
+AI-graded questions are left out). When the window closes the student is walled
+and asked to subscribe; paying revokes Student Basic and hands them the
+AI-graded questions automatically.
+
+Re-running updates the code in place. It cannot add the Student Basic tier to a
+code students already hold — that would change what those students get the next
+time their subscription is activated — and says so rather than doing it.
+The same code can be built in the admin UI: **Billing → Coupon Codes → Create**,
+target **Student (Billing)**, 100% off, tick *Student Basic*, and set *Access
+Duration* to 14. The command stays for scripted or bulk setup, and for the
+`--deactivate` switch.
+
+```bash
+python manage.py free_trial_code --code MHM2WEEKS --dry-run
+python manage.py free_trial_code --code MHM2WEEKS --max-uses 200
+python manage.py free_trial_code --code MHM-TERM4 --days 21 --expires 2026-12-19
+python manage.py free_trial_code --code MHM2WEEKS --deactivate  # stop new sign-ups
+```
+
+### `notify_payment_required`
+Email families who are not paying, with the discount code and a link to start.
+Two audiences, because the lists are not the same people:
+
+- `--audience regated` (default) — students the re-gating pass put back behind
+  the payment wall who have logged in before. Run after
+  `reset_imported_student_gating`.
+- `--audience unsubscribed` — everybody with no live subscription of their own,
+  **including students who never subscribed at all**. A student coming off a
+  free promotion is invisible to `regated` (their profile is complete and they
+  have logged in), so this is the audience a promotion goes to.
+
+`--include-parents` adds each student's linked parent or guardian — the student
+has the account, the parent has the card. Anyone already emailed is skipped so
+a re-run never double-sends; `--resend` overrides that. Always `--dry-run`
+first: it prints the exact recipient list and sends nothing.
+```bash
+python manage.py notify_payment_required --school 4 \
+    --audience unsubscribed --include-parents --dry-run
+python manage.py notify_payment_required --school 4 \
+    --audience unsubscribed --include-parents \
+    --discount-code MHM2WEEKS --discount-percent 100 \
+    --link-url https://www.wizardslearninghub.co.nz/accounts/complete-profile/
+```
+
 ### `promo_code_doctor`
 Report whether each Student (Promo) code has actually taken effect for anybody.
 Read-only — it writes nothing, so it is safe against production. Separates a
@@ -290,7 +339,27 @@ A run on any other day is a legitimate no-op and says so. Installed by
 10 6 * * * cwa /home/cwa/CWA_CLASS_APP/scripts/cron_generate_progress_reports.sh /home/cwa/CWA_CLASS_APP /etc/cwa/cwa.env >> /var/log/cwa/progress_reports.log 2>&1
 ```
 
-See [`docs/specs/CPP-388_period_progress_reports.md`](docs/specs/CPP-388_period_progress_reports.md).
+**Whole-school coverage (CPP-422).** A school can switch *Cover every student in
+the school* on under *Report Automation*. The run then reaches every active
+student of that school — including those in no reporting class and those with no
+subscription — and the ones with nothing to show get one short email to their
+parents saying why: no active subscription (with the sign-in link and the
+school's discount code, when it has a valid one) or no work done in the period.
+Off until switched on. One note per student per period, stamped in
+`PeriodReportNotice`, so re-running the command re-mails nobody. The command
+prints the cohort, the reason breakdown and any note that reached nobody:
+
+```
+weekly: Week of 07 Sep 2026 — Generated 12 report(s) for 12 student(s) across 3 class(es); ...
+  whole school: 8 student(s) with nothing to show (5 no subscription, 3 no activity); 8 note(s) sent to 11 parent address(es)
+```
+
+`--dry-run` never builds report data, so it cannot know who was active; its
+whole-school figure is reported as a floor ("at least N …"), not a total.
+`--no-notify` silences the notes along with everything else.
+
+See [`docs/specs/CPP-388_period_progress_reports.md`](docs/specs/CPP-388_period_progress_reports.md)
+and [`docs/SPEC_REPORT_AUTOMATION_WHOLE_SCHOOL.md`](docs/SPEC_REPORT_AUTOMATION_WHOLE_SCHOOL.md).
 
 ---
 
