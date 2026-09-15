@@ -52,6 +52,46 @@ def badly_answered_question(db, level, topic):
     return question
 
 
+@pytest.fixture
+def badly_answered_fill_blank(db, level, topic):
+    """A fill-in-the-blank sentence, with the Answer rows it kept from before
+    it became one.
+
+    Those rows accept nothing — ``grade_text_answer`` routes a fill_blank
+    question to ``grade_fill_blank``, which reads ``blank_spec`` and nothing
+    else — and one of them is the exact string a child typed and was marked
+    wrong on. Printing them as "what it accepts" is the panel accusing itself.
+    """
+    from django.contrib.auth import get_user_model
+
+    from maths.models import Answer, Question, StudentAnswer
+
+    question = Question.objects.create(
+        level=level, topic=topic, school=None,
+        question_text=(
+            "Work out the number pattern rule and complete the pattern: "
+            "110, 130, __, 170, __, __."),
+        question_type="fill_blank", difficulty=1, points=1,
+        blank_spec={"blanks": [{"answers": ["150"]},
+                               {"answers": ["190"]},
+                               {"answers": ["210"]}]},
+    )
+    for order, text in enumerate(("150, 190, 210", "150 ,170 ,190 ,210")):
+        Answer.objects.create(question=question, answer_text=text,
+                              is_correct=True, order=order)
+
+    user_model = get_user_model()
+    typed = ['{"blanks":["","",""]}'] * 4 + ["150 ,170 ,190 ,210"] * 2
+    for index, text in enumerate(typed):
+        student = user_model.objects.create_user(
+            username=f"blankboard_kid_{index}",
+            email=f"bk{index}@test.local", password="ui-test-pass-123")
+        StudentAnswer.objects.create(
+            student=student, question=question, text_answer=text,
+            is_correct=False, attempt_id=uuid.uuid4())
+    return question
+
+
 def _open_health_page(page, live_server, user):
     do_login(page, live_server.url, user)
     page.goto(f"{live_server.url}{HEALTH_URL}")
@@ -315,3 +355,32 @@ def test_the_editor_edits_the_explanation_too(
         page.wait_for_timeout(100)
     assert badly_answered_question.explanation == (
         "600 + 60 + 6 is 666 written out place by place.")
+
+
+def test_a_fill_blank_row_shows_the_gaps_rather_than_json(
+    page, live_server, superuser, subject, level, topic,
+    badly_answered_fill_blank,
+):
+    """Both halves of the evidence, for the one type whose key is not its rows.
+
+    What the children answered was printed as the raw payload the browser
+    posts, and what the question accepts was printed from Answer rows that
+    grade nothing — so the row showed a child's answer beside an "accepted"
+    string it matched character for character, and the fix it invited (widen
+    the rows) cannot move the mark.
+    """
+    _open_health_page(page, live_server, superuser)
+
+    row = page.locator(f"#wrong-rate-row-{badly_answered_fill_blank.id}")
+    given = row.locator("[data-testid='wrong-rate-given']")
+    # Four children submitted the sentence with every gap empty. That reads as
+    # three empty gaps, not as {"blanks":["","",""]}.
+    expect(given).to_contain_text("—, —, —")
+    expect(given).not_to_contain_text('{"blanks"')
+
+    expected = row.locator("[data-testid='wrong-rate-expected']")
+    expect(expected).to_contain_text("Blank 1: 150")
+    expect(expected).to_contain_text("Blank 2: 190")
+    expect(expected).to_contain_text("Blank 3: 210")
+    # And NOT the stale row that reads as though the typed answer was accepted.
+    expect(expected).not_to_contain_text("150 ,170 ,190 ,210")
