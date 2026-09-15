@@ -135,6 +135,11 @@
             {% if q.image_ref %}
             <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-700">{{ q.image_ref }}</span>
             {% endif %}
+            {% if q.shape_naming %}
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-700"
+                  data-testid="shape-badge-{{ forloop.counter0 }}"
+                  title="Detected as a shape to identify — one question per shape, graded as multiple choice">🔷 Name the shape</span>
+            {% endif %}
             {% if q.needs_review %}
             <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700"
                   data-testid="review-badge-{{ forloop.counter0 }}"
