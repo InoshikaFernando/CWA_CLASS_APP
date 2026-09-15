@@ -144,3 +144,10 @@ class HomeworkReviewPointsTests(HomeworkReviewHighlightTests):
     def test_an_unflagged_question_gets_no_strip(self):
         html = self._preview_html(self._session())
         self.assertNotIn('data-testid="review-point-1-0"', html)
+
+    def test_the_submit_gate_and_the_question_numbers_are_on_the_page(self):
+        """The warning names questions, so each card has to know its number."""
+        html = self._preview_html(self._session())
+        self.assertIn('data-testid="review-gate"', html)
+        self.assertIn('data-testid="review-gate-continue"', html)
+        self.assertIn('data-review-number="1"', html)

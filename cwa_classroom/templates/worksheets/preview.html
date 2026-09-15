@@ -145,7 +145,7 @@
     <!-- Questions -->
     {% for q in questions %}
     <div class="q-card bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4{% if q.needs_review and not q.review_ack %} needs-review{% endif %}"
-         id="q-{{ forloop.counter0 }}" data-review-card>
+         id="q-{{ forloop.counter0 }}" data-review-card data-review-number="{{ forloop.counter }}">
       <div class="flex items-start gap-3">
         <label class="flex items-center gap-2 cursor-pointer mt-0.5">
           <input type="checkbox" name="q_{{ forloop.counter0 }}_include" {% if q.include != False %}checked{% endif %}
@@ -332,6 +332,7 @@
     {% endfor %}
 
     {% if questions %}
+    {% include "_partials/review_gate.html" %}
     <div class="flex gap-3">
       <button type="submit"
               class="px-6 py-2.5 rounded-xl bg-primary text-white font-semibold text-sm shadow-sm hover:bg-primary/90 transition">

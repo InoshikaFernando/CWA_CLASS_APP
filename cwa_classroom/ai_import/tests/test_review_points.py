@@ -17,7 +17,9 @@ from accounts.models import CustomUser
 from classroom.models import School
 
 from ai_import.models import AIImportSession
-from ai_import.review_points import DEFAULT_REASON, classify_reason, review_points
+from ai_import.review_points import (
+    DEFAULT_REASON, classify_reason, review_points, unreviewed_questions,
+)
 
 
 def _points(reason, **extra):
@@ -184,3 +186,103 @@ class AIImportReviewStripTests(TestCase):
         self.assertIn('data-testid="review-point-0-0"', html)
         strip = html.split('id="review-points-0"')[0].rsplit('<div', 1)[1]
         self.assertIn('hidden', strip)
+
+
+class UnreviewedQuestionTests(TestCase):
+    """Which flagged questions are still outstanding when the teacher submits.
+
+    The preview warns from the live checkboxes (the teacher may have just
+    ticked one); this is what the confirm screen reads back from what was saved.
+    """
+
+    @staticmethod
+    def _q(**extra):
+        q = {'question_text': 'Q', 'question_type': 'short_answer'}
+        q.update(extra)
+        return q
+
+    def test_a_flagged_question_nobody_ticked_is_outstanding(self):
+        out = unreviewed_questions([
+            self._q(needs_review=True, review_reason='Image check: re-crop the figure.')])
+        self.assertEqual([u['number'] for u in out], [1])
+        self.assertEqual(out[0]['labels'], ['Image'])
+
+    def test_a_ticked_question_is_not_outstanding(self):
+        self.assertEqual(
+            unreviewed_questions([self._q(needs_review=True, review_ack=True)]), [])
+
+    def test_an_unflagged_question_is_not_outstanding(self):
+        self.assertEqual(unreviewed_questions([self._q()]), [])
+
+    def test_an_excluded_question_is_not_held_against_the_import(self):
+        """It is not being imported, so nobody has to check it."""
+        self.assertEqual(
+            unreviewed_questions([self._q(needs_review=True, include=False)]), [])
+
+    def test_the_number_is_the_one_printed_on_the_preview(self):
+        """Counting only the flagged ones would name "Q1" for the question the
+        teacher sees as Q3."""
+        out = unreviewed_questions([
+            self._q(), self._q(), self._q(needs_review=True), self._q(),
+            self._q(needs_review=True)])
+        self.assertEqual([u['number'] for u in out], [3, 5])
+
+    def test_an_excluded_question_still_does_not_shift_the_numbers(self):
+        out = unreviewed_questions([
+            self._q(include=False), self._q(needs_review=True)])
+        self.assertEqual([u['number'] for u in out], [2])
+
+    def test_no_questions_is_not_an_error(self):
+        self.assertEqual(unreviewed_questions([]), [])
+        self.assertEqual(unreviewed_questions(None), [])
+
+
+class AIImportSubmitGateTests(AIImportReviewStripTests):
+    """The preview offers the warning the submit needs, and the confirm screen
+    says so again for anything that came through unticked."""
+
+    def test_the_preview_carries_the_warning_and_the_question_numbers(self):
+        html = self._preview_html()
+        self.assertIn('data-testid="review-gate"', html)
+        self.assertIn('data-testid="review-gate-continue"', html)
+        # The warning names questions, so each card has to know its number.
+        self.assertIn('data-review-number="1"', html)
+
+    def test_the_confirm_screen_names_what_came_through_unchecked(self):
+        session = AIImportSession.objects.create(
+            user=self.user, school=self.school, pdf_filename='a.pdf',
+            status=AIImportSession.STATUS_READY, page_count=1, is_confirmed=False,
+            extracted_data={
+                'year_level': 5, 'subject': 'Mathematics', 'strand': '', 'topic': '',
+                'questions': [
+                    {'question_text': 'Fine?', 'question_type': 'short_answer',
+                     'difficulty': 1, 'points': 1, 'include': True},
+                    {'question_text': 'Suspect?', 'question_type': 'short_answer',
+                     'difficulty': 1, 'points': 1, 'include': True,
+                     'needs_review': True, 'review_reason': 'answers disagree'},
+                ],
+            })
+        self.client.force_login(self.user)
+        html = self.client.get(
+            reverse('ai_import:confirm', args=[session.pk])).content.decode()
+        self.assertIn('data-testid="unreviewed-notice"', html)
+        self.assertIn('Q2', html)
+        self.assertIn('still need', html.replace('needs review', 'need review'))
+
+    def test_the_confirm_screen_says_nothing_when_everything_was_checked(self):
+        session = AIImportSession.objects.create(
+            user=self.user, school=self.school, pdf_filename='b.pdf',
+            status=AIImportSession.STATUS_READY, page_count=1, is_confirmed=False,
+            extracted_data={
+                'year_level': 5, 'subject': 'Mathematics', 'strand': '', 'topic': '',
+                'questions': [
+                    {'question_text': 'Suspect?', 'question_type': 'short_answer',
+                     'difficulty': 1, 'points': 1, 'include': True,
+                     'needs_review': True, 'review_reason': 'answers disagree',
+                     'review_ack': True},
+                ],
+            })
+        self.client.force_login(self.user)
+        html = self.client.get(
+            reverse('ai_import:confirm', args=[session.pk])).content.decode()
+        self.assertNotIn('data-testid="unreviewed-notice"', html)

@@ -104,6 +104,7 @@
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 question-card{% if q.needs_review and not q.review_ack %} needs-review{% endif %}"
          x-data="{ expanded: true }"
          id="question-card-{{ forloop.counter0 }}" data-review-card
+         data-review-number="{{ forloop.counter }}"
          data-idx="{{ forloop.counter0 }}">
       <div class="flex items-start gap-3">
         <!-- Include checkbox -->
@@ -433,6 +434,8 @@
       </div>
     </div>
     {% endfor %}
+
+    {% include "_partials/review_gate.html" %}
 
     <!-- Actions -->
     <div class="sticky bottom-0 bg-gray-50 border-t border-gray-200 -mx-4 px-4 py-3 flex gap-3 justify-end z-10">

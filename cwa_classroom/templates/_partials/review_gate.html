@@ -1,0 +1,32 @@
+{% comment %}
+The "these questions still need review" warning, shown when the teacher submits
+a PDF preview with a flagged question still unticked.
+
+Hidden until the submit is attempted — a warning that is on screen from the
+start is wallpaper, and the strip on each card already says what is wrong. This
+one names the questions, because by then the teacher has scrolled past them.
+
+Include once per page, inside the form and just above its submit buttons.
+{% endcomment %}
+<div id="review-gate" class="hidden rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 mb-4"
+     data-testid="review-gate" role="alert">
+  <p class="text-sm font-bold text-red-800">
+    ⚠ <span data-review-gate-list></span>
+  </p>
+  <p class="text-xs text-red-700 mt-1">
+    Tick “Reviewed” on each one once you have checked it. Nothing has been
+    submitted yet.
+  </p>
+  <div class="mt-2 flex flex-wrap gap-2">
+    <button type="button" data-review-gate-goto
+            class="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700"
+            data-testid="review-gate-goto">
+      Go to <span data-review-gate-first></span>
+    </button>
+    <button type="button" data-review-gate-continue
+            class="px-3 py-1.5 rounded-lg border border-red-300 bg-white text-red-700 text-xs font-semibold hover:bg-red-100"
+            data-testid="review-gate-continue">
+      Submit without checking them
+    </button>
+  </div>
+</div>

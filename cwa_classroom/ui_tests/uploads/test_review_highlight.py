@@ -257,3 +257,86 @@ class TestWhatToCheckOnAIImport:
         image = page.locator('#question-card-0 [data-review-field="image"]')
         expect(image).to_be_visible()
         expect(image).to_be_in_viewport()
+
+
+class TestSubmitGate:
+    """Submitting with a flagged question still unticked warns and names it.
+
+    A red card and a "what to check" strip only help while the teacher is
+    looking at that question. On a long import the flagged one is far up the
+    page by the time they press Continue, so the submit itself has to say which
+    questions were never checked. It warns rather than locks — the teacher can
+    say "submit without checking them" — but it never goes quietly.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    def test_submitting_with_a_flagged_question_warns_and_names_it(
+        self, page: Page, live_server, school, teacher_user
+    ):
+        session = _session(teacher_user, school)
+        do_login(page, str(live_server), teacher_user)
+        page.goto(f"{live_server}/homework/pdf/preview/{session.pk}/")
+        page.wait_for_load_state("domcontentloaded")
+
+        page.get_by_role("button", name="Continue to Confirm").click()
+
+        gate = page.get_by_test_id("review-gate")
+        expect(gate).to_be_visible()
+        expect(gate).to_contain_text("Q1 needs review")
+        # ...and nothing was submitted.
+        expect(page).to_have_url(f"{live_server}/homework/pdf/preview/{session.pk}/")
+        assert session.__class__.objects.get(pk=session.pk).is_confirmed is False
+
+    @pytest.mark.django_db(transaction=True)
+    def test_ticking_the_question_takes_the_warning_away_and_lets_it_through(
+        self, page: Page, live_server, school, teacher_user
+    ):
+        session = _session(teacher_user, school)
+        do_login(page, str(live_server), teacher_user)
+        page.goto(f"{live_server}/homework/pdf/preview/{session.pk}/")
+        page.wait_for_load_state("domcontentloaded")
+
+        page.get_by_role("button", name="Continue to Confirm").click()
+        expect(page.get_by_test_id("review-gate")).to_be_visible()
+
+        page.get_by_test_id("review-ack-0").check()
+        expect(page.get_by_test_id("review-gate")).to_be_hidden()
+
+        page.get_by_role("button", name="Continue to Confirm").click()
+        page.wait_for_url(lambda url: "/confirm/" in url, timeout=15_000)
+        # Nothing was left unchecked, so the confirm screen says nothing.
+        expect(page.get_by_test_id("unreviewed-notice")).to_have_count(0)
+
+    @pytest.mark.django_db(transaction=True)
+    def test_submitting_anyway_is_allowed_and_the_confirm_screen_still_says_so(
+        self, page: Page, live_server, school, teacher_user
+    ):
+        """The teacher's call — but "submit anyway" must not mean the fact
+        disappears at the click that actually creates the questions."""
+        session = _session(teacher_user, school)
+        do_login(page, str(live_server), teacher_user)
+        page.goto(f"{live_server}/homework/pdf/preview/{session.pk}/")
+        page.wait_for_load_state("domcontentloaded")
+
+        page.get_by_role("button", name="Continue to Confirm").click()
+        page.get_by_test_id("review-gate-continue").click()
+        page.wait_for_url(lambda url: "/confirm/" in url, timeout=15_000)
+
+        notice = page.get_by_test_id("unreviewed-notice")
+        expect(notice).to_be_visible()
+        expect(notice).to_contain_text("Q1")
+
+    @pytest.mark.django_db(transaction=True)
+    def test_a_question_the_teacher_excluded_does_not_hold_up_the_submit(
+        self, page: Page, live_server, school, teacher_user
+    ):
+        """It is not being imported, so nobody has to check it."""
+        session = _session(teacher_user, school)
+        do_login(page, str(live_server), teacher_user)
+        page.goto(f"{live_server}/homework/pdf/preview/{session.pk}/")
+        page.wait_for_load_state("domcontentloaded")
+
+        page.locator('input[name="q_0_include"]').uncheck()
+        page.get_by_role("button", name="Continue to Confirm").click()
+        page.wait_for_url(lambda url: "/confirm/" in url, timeout=15_000)
+        expect(page.get_by_test_id("unreviewed-notice")).to_have_count(0)

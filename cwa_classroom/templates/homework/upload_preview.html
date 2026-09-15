@@ -94,7 +94,7 @@
         {% for q in questions %}
         {% with q_idx=forloop.counter0 %}
         <div class="q-card bg-white rounded-2xl border border-gray-100 shadow-sm {% if not q.include %}excluded{% endif %}{% if q.needs_review and not q.review_ack %} needs-review{% endif %}"
-             id="card-{{ q_idx }}" data-review-card>
+             id="card-{{ q_idx }}" data-review-card data-review-number="{{ forloop.counter }}">
 
           <!-- Card header -->
           <div class="card-header flex items-center gap-3 px-5 py-3 border-b border-gray-50">
@@ -435,7 +435,10 @@
       </div>
 
       <!-- Bottom actions -->
-      <div class="mt-8 flex justify-between items-center">
+      <div class="mt-8">
+        {% include "_partials/review_gate.html" %}
+      </div>
+      <div class="flex justify-between items-center">
         <a href="{% url 'homework:pdf_upload' %}" class="text-sm text-gray-400 hover:text-gray-600">← Start Over</a>
         <button type="button" data-preview-all
                 class="px-5 py-3 rounded-xl border border-blue-200 text-sm font-semibold text-blue-600 hover:bg-blue-50 transition">

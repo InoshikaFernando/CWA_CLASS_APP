@@ -120,3 +120,33 @@ def review_points(question):
     for point in points:
         point['label'] = FIELD_LABELS[point['field']]
     return points
+
+
+def unreviewed_questions(questions):
+    """The flagged questions still waiting to be checked, in page order.
+
+    ``[{'number': 3, 'labels': ['Answer', 'Image']}, ...]`` — ``number`` is the
+    question's number as the preview prints it (1-based, counting excluded
+    questions too, because that is the "Q3" the teacher is looking at).
+
+    A question counts as outstanding when a guard flagged it, the teacher has
+    not ticked "Reviewed", and it is actually being imported: a question the
+    teacher excluded is not going to reach any student, so holding up the
+    import for it would be noise.
+
+    The preview warns from the live checkboxes, since the teacher may have just
+    ticked one; this is for the confirm screen, which reads what was saved.
+    """
+    outstanding = []
+    for index, q in enumerate(questions or [], start=1):
+        if not isinstance(q, dict):
+            continue
+        if not q.get('needs_review') or q.get('review_ack'):
+            continue
+        if not q.get('include', True):
+            continue
+        outstanding.append({
+            'number': index,
+            'labels': [p['label'] for p in review_points(q)],
+        })
+    return outstanding

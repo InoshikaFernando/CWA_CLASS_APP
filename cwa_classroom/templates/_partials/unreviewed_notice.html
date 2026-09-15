@@ -1,0 +1,25 @@
+{% comment %}
+The last word on a flagged question nobody ticked: the confirm screen says so,
+because this is the click that actually creates the questions.
+
+The preview screen warns first and lets the teacher submit anyway — that is
+their call — but "submit anyway" should not mean the fact disappears.
+
+Context: unreviewed — ai_import.review_points.unreviewed_questions(...);
+back_url — the preview screen, so the teacher can go and check them.
+{% endcomment %}
+{% if unreviewed %}
+<div class="mb-4 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3" role="alert"
+     data-testid="unreviewed-notice">
+  <p class="text-sm font-bold text-red-800">
+    ⚠ {% for u in unreviewed %}Q{{ u.number }}{% if not forloop.last %}{% if forloop.revcounter0 == 1 %} and {% else %}, {% endif %}{% endif %}{% endfor %}
+    still {{ unreviewed|length|pluralize:"needs,need" }} review
+  </p>
+  <p class="text-xs text-red-700 mt-1">
+    {{ unreviewed|length|pluralize:"This question was,These questions were" }} flagged by the
+    import checks and never ticked as reviewed. Submitting now imports
+    {{ unreviewed|length|pluralize:"it,them" }} as {{ unreviewed|length|pluralize:"it is,they are" }}.
+    <a href="{{ back_url }}" class="font-semibold underline">Back to review</a>
+  </p>
+</div>
+{% endif %}
