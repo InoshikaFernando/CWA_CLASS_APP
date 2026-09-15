@@ -16,6 +16,36 @@ The app registers a `MathsPlugin` with `classroom.subject_registry` from `AppCon
 - **TimeLog** — time spent per user / level / subject (also used by `coding`).
 - **TopicLevelStatistics** — cumulative best_score, attempts, avg_time per student / topic / level.
 
+## What a times-table tile shows (`times_table_results.py`)
+
+**Latest leads, best follows.** Every surface used to headline the student's
+best-ever attempt — the dashboard wall, the picker at `/maths/times-tables/`,
+the teacher/parent progress summary. A best score only ever goes up, so it
+answers "what did this child once do" and never "what can they do now". The
+headline number, and the tile's colour, now come from the **most recent**
+attempt, with the best kept beside it in small type (and named only when it
+beats today's run — repeating "best 100%" under a 100% tile is noise).
+
+Keeping the best is not decoration: leading with the latest and *dropping* the
+best would cost a child their hard-won dark-green 7× to one distracted run,
+punishing the practice the freshness nudges exist to encourage. It also keeps
+the page honest about points, which `rewards.rebuild_points_ledger` awards from
+the best attempt ever made.
+
+`results_map(student)` is the only copy of that reading, for the same reason
+`constants.TIMES_TABLES_BY_YEAR` is. The three surfaces had already drifted:
+the wall read the highest-*points* run while the picker read the highest
+*score*, so one page could say 100% where another said 92%. `wall_tiles()`
+goes further and builds the whole wall, because **two** views render
+`student/dashboard.html` — `classroom.views` and `progress.views` — and only
+one of them had grown the freshness nudges.
+
+> Note: `progress.views.StudentDashboardView` is unreachable today.
+> `progress/urls.py` registers `student-dashboard/` under the same name as
+> `classroom/urls.py`, which the root urlconf includes first, so the classroom
+> view wins every time. It is kept in step rather than left to rot further,
+> but it is dead code and a candidate for deletion.
+
 ## Times-table results go stale, they do not expire (`times_table_freshness.py`)
 
 Every surface that shows a times table shows the student's **best** attempt —

@@ -432,46 +432,16 @@ class StudentDashboardView(LoginRequiredMixin, View):
             np_grid = []
 
         # ── Times Tables results ──────────────────────────────────────────────
-        # The colour comes from the student's BEST attempt; the freshness beside
-        # it from their LATEST one. A wall that only showed the best said a
-        # table mastered in March was mastered today — see
-        # maths.times_table_freshness for why that is reported rather than
-        # expired.
-        from maths import times_table_freshness
-        tt_freshness = times_table_freshness.describe_map(request.user)
-        tt_results = []
-        for table in range(1, 16):
-            best_mul = _tt_best(request.user, 'multiplication', table)
-            best_div = _tt_best(request.user, 'division', table)
-            # Legacy: attempts without operation saved (old records)
-            if not best_mul and not best_div:
-                best_legacy = StudentFinalAnswer.objects.filter(
-                    student=request.user,
-                    quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
-                    operation='',
-                    table_number=table,
-                ).order_by('-points').first()
-            else:
-                best_legacy = None
-            # Legacy rows are normalised to multiplication by describe_map, so
-            # a legacy-only table's × row still gets its freshness.
-            mul_fresh = tt_freshness.get((table, 'multiplication'))
-            div_fresh = tt_freshness.get((table, 'division'))
-            tt_results.append({
-                'table': table,
-                'mul': best_mul,
-                'div': best_div,
-                'legacy': best_legacy,
-                'mul_colour': _tt_colour(best_mul if best_mul else best_legacy),
-                'div_colour': _tt_colour(best_div),
-                'mul_fresh': mul_fresh,
-                'div_fresh': div_fresh,
-                'needs_refresh': bool(
-                    (mul_fresh and mul_fresh['needs_refresh'])
-                    or (div_fresh and div_fresh['needs_refresh'])
-                ),
-            })
-        tt_refresh_due = times_table_freshness.tables_needing_refresh(tt_freshness)
+        # Each tile leads with the student's LATEST attempt — number, colour and
+        # date all from the same run — and keeps their best beside it in small
+        # type. Leading with the best made the wall a high-water mark that only
+        # ever went up, so it answered "what did this child once do" rather than
+        # "what can they do now"; dropping the best instead would cost a green
+        # tile to one distracted run. Built in maths/times_table_results.py
+        # because progress.views renders this same template.
+        from maths import times_table_results
+        tt_results, tt_refresh_due = times_table_results.wall_tiles(
+            request.user, _tt_colour)
 
         # ── Recent activity ───────────────────────────────────────────────────
         _activity = []
@@ -830,34 +800,15 @@ def _pct_colour(pct):
     return 'bg-red-200 text-red-900'
 
 
-def _tt_best(student, operation, table):
-    """
-    Pick the best times-table record to display for a (student, operation, table).
-
-    Returns the best-by-points shuffled attempt if the student has one whose
-    time is less than 2× the best ordered time — shuffled is harder, so
-    matching that pace is the more impressive result and should be shown.
-    Otherwise returns whichever best exists.
-    """
-    from maths.models import StudentFinalAnswer
-    base = StudentFinalAnswer.objects.filter(
-        student=student,
-        quiz_type=StudentFinalAnswer.QUIZ_TYPE_TIMES_TABLE,
-        operation=operation,
-        table_number=table,
-    )
-    best_shuffled = base.filter(shuffled=True).order_by('-points').first()
-    best_ordered = base.filter(shuffled=False).order_by('-points').first()
-    if best_shuffled and best_ordered:
-        if best_shuffled.time_taken_seconds < best_ordered.time_taken_seconds * 2:
-            return best_shuffled
-        return best_ordered
-    return best_shuffled or best_ordered
-
-
 def _tt_colour(result):
     """
-    Colour for a single times-table row (× or ÷).
+    Colour for a single times-table row (× or ÷), from the student's LATEST
+    attempt at it — the colour and the date on a tile describe the same run.
+    It used to be their best-ever attempt, which meant the colour only ever
+    went up and stopped saying anything about now
+    (see maths/times_table_results.py). The best is still shown beside it, so
+    an off day costs the tile its colour for a day, not the record.
+
     Must be 100% correct to get a colour other than red.
 
     In Order (practice, easier — capped):
