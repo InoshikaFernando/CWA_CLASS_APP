@@ -17,7 +17,9 @@ from django.test import SimpleTestCase, TestCase
 from worksheets.services import (
     EXTRACTED_QUESTION_TYPE_CHOICES,
     EXTRACTED_QUESTION_TYPES,
+    NAME_THE_SHAPE_TYPE,
     WORKSHEET_CLASSIFICATION_TOOL,
+    _normalise_name_the_shape,
     accepted_question_type,
     answer_review_warning,
     preview_question_type_choices,
@@ -31,14 +33,22 @@ def _enum():
 
 class SharedListTests(SimpleTestCase):
 
-    def test_the_extractor_enum_is_the_shared_list(self):
-        self.assertEqual(list(_enum()), EXTRACTED_QUESTION_TYPES)
+    def test_the_extractor_enum_is_the_shared_list_plus_the_one_normalised_type(self):
+        # name_the_shape is the one value the model may emit that never reaches
+        # a dropdown: _normalise_name_the_shape turns it into multiple_choice
+        # inside _classify_page_chunk, before any preview exists.
+        self.assertEqual(list(_enum()), EXTRACTED_QUESTION_TYPES + [NAME_THE_SHAPE_TYPE])
 
-    def test_every_emittable_type_has_a_dropdown_option(self):
+    def test_every_emittable_type_has_a_dropdown_option_or_is_normalised_away(self):
         offered = {value for value, _ in preview_question_type_choices()}
         for q_type in _enum():
             with self.subTest(q_type):
-                self.assertIn(q_type, offered)
+                if q_type == NAME_THE_SHAPE_TYPE:
+                    q = {'question_type': q_type, 'answers': [], 'image_bbox': None}
+                    _normalise_name_the_shape([q])
+                    self.assertIn(q['question_type'], offered)
+                else:
+                    self.assertIn(q_type, offered)
 
     def test_every_type_is_a_real_maths_question_type(self):
         # A type the model doesn't know maps to short_answer on import, which is

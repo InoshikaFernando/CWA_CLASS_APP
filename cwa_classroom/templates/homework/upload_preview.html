@@ -116,6 +116,12 @@
               {% else %}✓ Auto{% endif %}
             </span>
 
+            {% if q.shape_naming %}
+            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-sky-100 text-sky-700"
+                  data-testid="shape-badge-{{ q_idx }}"
+                  title="Detected as a shape to identify — one question per shape, graded as multiple choice">🔷 Name the shape</span>
+            {% endif %}
+
             {% if q.needs_review %}
             <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700"
                   data-testid="review-badge-{{ q_idx }}"

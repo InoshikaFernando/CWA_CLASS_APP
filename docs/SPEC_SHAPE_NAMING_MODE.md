@@ -1,102 +1,89 @@
-# Shape-Naming Mode for Worksheet / Homework PDF Upload
+# Name-the-Shape Items in the Worksheet / Homework PDF Upload
+
+> **Superseded design note.** This document originally specified an opt-in
+> *"Name-the-shape mode"* checkbox on the upload form. That mode is gone. What
+> replaced it, and why, is below; the original design is kept at the end for
+> the record.
 
 ## Problem
 
-Teachers upload PDFs that display a **set, grid, or chart of shapes** (e.g. `G1.pdf`)
-intending one identification question per shape ("What is the name of this shape?").
-The current AI extraction pipeline assumes **one question → one `image_bbox`**, so a
-page full of shapes is detected as a *single* visual and produces *one* question with
-*one* crop spanning the whole cluster. It never explodes the cluster into per-shape
-questions, and there is no question text / answer to attach because the source sheet
-rarely prints "name this shape" beside each one.
+Teachers upload PDFs that display a **set, grid, or chart of shapes** intending one
+identification question per shape ("What is the name of this shape?"). The source sheet
+rarely prints a question beside each shape, so the ordinary one-question-one-bbox
+extraction turned a page of shapes into a single question with one crop of the whole
+cluster.
 
-## Goal
+The first fix was a **whole-upload mode switch**. It only worked when the entire PDF was
+a shapes sheet: the switch swapped the system prompt for one that emitted *only* shape
+questions and skipped everything else. Real sheets are mixed — a row of shapes to name
+above six ordinary questions — and for those a teacher had to choose which half of the
+page to lose.
 
-Add an **opt-in "name-the-shape" mode** to the worksheet-based PDF upload flows. When
-enabled, the AI emits **one auto-generated question per individual shape**:
+## Design (current)
 
-- `question_text` = `"What is the name of this shape?"`
-- `has_image = true`, `image_bbox` = tight box around **that single shape only**
-- `question_type = multiple_choice`, `validation_type = auto`
-- `answers` = the correct shape name (`is_correct=true`) + 3 plausible distractors
-- `explanation` = one sentence on the shape's defining property
-- classification: subject *Mathematics*, strand *Geometry*, topic *2D Shapes* / *3D Shapes*
+There is no mode. The classifier decides **per item**.
 
-Claude identifies each shape visually and fills the answer itself.
+### An extractor-only question type: `name_the_shape`
 
-## Scope
+`worksheets/services.py` adds `name_the_shape` to the classification tool's
+`question_type` enum (`NAME_THE_SHAPE_TYPE`). Rule 19 of `WORKSHEET_SYSTEM_PROMPT`
+tells the model when to use it: a sheet, section, chart, grid or row that *displays*
+shapes for the student to identify — with no question text of their own, or under
+"name each shape" — is **one question per individual shape**, emitted alongside whatever
+ordinary questions the same page carries. Each such question has:
 
-Implemented on the two flows that share the worksheet crop renderer:
+- `question_type = "name_the_shape"`
+- `question_text = "What is the name of this shape?"`
+- `has_image = true`, `image_bbox` = a tight box around **that single shape only**
+- `answers` = the correct shape name + 3 plausible distractors
+- `validation_type = "auto"`, one-sentence explanation, Mathematics / Geometry / 2D Shapes
 
-| Flow | Entry | Session model | Background task |
-|------|-------|---------------|-----------------|
-| Homework PDF upload | `homework.views.HomeworkPDFUploadView` | `HomeworkUploadSession` | `homework.tasks.process_homework_pdf` |
-| Worksheet upload | `worksheets.views.WorksheetUploadView` | `WorksheetUploadSession` | `worksheets.tasks.process_worksheet_pdf` |
+A shape that is merely the figure of an ordinary question ("find the area of this
+rectangle") keeps its own type — rule 19 says so explicitly.
 
-**Out of scope:** the `ai_import` ("Questions Library") flow. It maps questions to *whole
-embedded image refs* and has **no bbox crop renderer**, so per-shape cropping is not
-possible there without porting the entire `render_question_images` pipeline. Adding the
-shape prompt there would yield questions pointing at the full combined image — a broken
-half-feature — so it is intentionally excluded.
+### Normalised before the preview
 
-## Design
+`_normalise_name_the_shape` runs on every chunk result. Each `name_the_shape` item
+becomes a `multiple_choice` question carrying a `shape_naming: true` marker — exactly
+what the old mode produced, now item by item. The marker shows as a **🔷 Name the shape**
+badge on the homework and worksheet previews; the question bank stores plain multiple
+choice, so `maths.Question`, the take page and grading are untouched. An item that would
+be unanswerable — no figure box to crop the shape from, or not exactly one correct
+option — is routed to ⚠ Review with the reason rather than saved looking complete.
 
-No new model tree, no `maths.Question` change. Reuses the existing per-bbox renderer
-(`render_question_images` → `_render_clean_diagram` → `_tight_drawings_rect` →
-`_trim_whitespace`), which already tight-crops whatever bbox it is handed. The only real
-change is **what Claude is instructed to emit** — a per-shape prompt variant — plus
-threading a boolean.
+### What was removed
 
-### Service layer — `worksheets/services.py`
+- The `shape_naming` checkbox on `templates/homework/upload.html` and
+  `templates/worksheets/upload.html` (replaced by a line saying shapes are detected
+  automatically).
+- `HomeworkUploadSession.shape_naming` and `WorksheetUploadSession.shape_naming`
+  (`homework/0030`, `worksheets/0010` drop the columns; reversible).
+- The `shape_naming` parameter threaded through `extract_and_classify_worksheet`,
+  `classify_worksheet_questions`, `_classify_chunk_adaptive`, `_classify_page_chunk` and
+  `_build_system_prompt`; `SHAPE_NAMING_SYSTEM_PROMPT`; `SHAPE_NAMING_DPI` (the higher
+  screenshot DPI bought nothing — the vision API downsizes an A4 page below 150-DPI
+  size anyway, and bbox correctness never depended on it).
 
-- New `SHAPE_NAMING_SYSTEM_PROMPT` (per-shape explosion rules).
-- New `SHAPE_NAMING_DPI` (default 200) — page screenshots rendered at higher DPI in this
-  mode so Claude has more pixels to localise small shapes → tighter bboxes. Bbox
-  *correctness* is DPI-independent (coords convert via each page's stored dims); higher
-  DPI only improves Claude's *placement precision*.
-- `shape_naming: bool = False` threaded through:
-  `extract_and_classify_worksheet` → `extract_worksheet_pages(screenshot_dpi=…)` and
-  `classify_worksheet_questions` → `_build_system_prompt` / `_classify_page_chunk`.
+### Out of scope
 
-### Data model
+The `ai_import` flow keeps its own prompt; adding rule 19 there is a follow-up.
 
-Add `shape_naming = BooleanField(default=False)` to **both** `HomeworkUploadSession` and
-`WorksheetUploadSession`. Two additive migrations (nullable-equivalent boolean with
-default; safe, no table-lock risk on these small staging tables).
+## Tests
 
-### Views / forms / templates
+- `worksheets/tests/test_name_the_shape.py` — the enum carries the type but the review
+  dropdown does not; the prompt carries rule 19; a mixed chunk result (ordinary question
+  + shape items) is normalised item by item; items missing a box or a single correct
+  option are flagged; the upload page no longer renders the checkbox and a posted
+  `shape_naming=on` is ignored.
+- `homework/test_shape_naming.py` — the homework upload page has no checkbox; the task
+  no longer forwards a mode flag.
 
-- Upload views read `request.POST.get('shape_naming') == 'on'` and store it on the
-  session at creation time.
-- Background tasks read `session.shape_naming` and pass it to
-  `extract_and_classify_worksheet`. (No task-signature change for homework — the task
-  already loads the session by id.)
-- A checkbox **"Name-the-shape mode — make one 'name this shape' question per shape"**
-  added to `templates/homework/upload.html` and `templates/worksheets/upload.html`,
-  default unchecked.
+---
 
-## Permission model
+## Original design (2026-06, superseded)
 
-Unchanged — same `TEACHER_ROLES` gating as the existing upload views. The flag only
-alters AI prompting, not access.
-
-## Migration notes
-
-- `homework/migrations/00XX_homeworkuploadsession_shape_naming.py`
-- `worksheets/migrations/00XX_worksheetuploadsession_shape_naming.py`
-
-Both add one boolean column with `default=False`. Forward-only, no data backfill.
-
-## Test plan
-
-- **Unit (`worksheets/tests/test_shape_naming.py`)**
-  - `_build_system_prompt(shape_naming=True)` returns the shape prompt; `False` returns
-    the standard prompt.
-  - `extract_worksheet_pages(screenshot_dpi=…)` honours the DPI argument.
-  - `extract_and_classify_worksheet(..., shape_naming=True)` threads the flag into
-    `classify_worksheet_questions` (patched) and the higher DPI into extraction.
-- **Unit (session models)** — default `shape_naming` is `False`; can be set `True`.
-- **Unit (views)** — posting the checkbox persists `shape_naming=True` on the session;
-  omitting it stores `False`.
-- **UI (`ui_tests/test_shape_naming.py`)** — checkbox renders on both upload pages and
-  submits (happy path + default-off).
+Opt-in "name-the-shape mode": a checkbox on both upload forms stored on the session
+(`shape_naming` boolean), threaded to `extract_and_classify_worksheet`, which rendered
+pages at `SHAPE_NAMING_DPI` (200) and swapped `WORKSHEET_SYSTEM_PROMPT` for
+`SHAPE_NAMING_SYSTEM_PROMPT` — a prompt that emitted only shape questions and skipped all
+other text on the sheet.

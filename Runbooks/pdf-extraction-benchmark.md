@@ -30,7 +30,7 @@ Worth having in there:
 | A scanned/raster-only paper | the fallback crop path (no vector drawings to snap to) |
 | A paper with sideways / rotated pages (a landscape scan with `/Rotate 270`) | rotated-page geometry — drawings, text and image placements are reported unrotated while crops are displayed (`worksheets/pdf_geometry.py`) |
 | A paper longer than one classification chunk (5+ pages) | page attribution — the model must name real page numbers, not a page's position in its chunk (`worksheets/page_attribution.py`) |
-| A shapes chart | name-the-shape mode, many small figures on one page |
+| A shapes chart (ideally one with ordinary questions on the same page) | per-item `name_the_shape` detection, many small figures on one page |
 | A very dense page (50+ items) | adaptive chunk splitting on `max_tokens` |
 
 ## 2. Record a baseline, before your change
