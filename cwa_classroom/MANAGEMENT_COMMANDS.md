@@ -117,6 +117,11 @@ AI-graded questions automatically.
 Re-running updates the code in place. It cannot add the Student Basic tier to a
 code students already hold — that would change what those students get the next
 time their subscription is activated — and says so rather than doing it.
+The same code can be built in the admin UI: **Billing → Coupon Codes → Create**,
+target **Student (Billing)**, 100% off, tick *Student Basic*, and set *Access
+Duration* to 14. The command stays for scripted or bulk setup, and for the
+`--deactivate` switch.
+
 ```bash
 python manage.py free_trial_code --code MHM2WEEKS --dry-run
 python manage.py free_trial_code --code MHM2WEEKS --max-uses 200
