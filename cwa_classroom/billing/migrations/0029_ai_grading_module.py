@@ -2,6 +2,37 @@
 from django.db import migrations, models
 import django.db.models.deletion
 
+_AI_GRADING_PRODUCTS = [
+    ('ai_grading_starter',      'AI Grading - Starter',      15.00, 1000),
+    ('ai_grading_professional', 'AI Grading - Professional',  49.00, 5000),
+    ('ai_grading_enterprise',   'AI Grading - Enterprise',    149.00, None),
+]
+
+
+def _seed_ai_grading_products(apps, schema_editor):
+    # ORM update_or_create instead of raw "ON DUPLICATE KEY UPDATE" SQL —
+    # that's MySQL-only syntax and breaks `migrate` on sqlite (local dev,
+    # CI). Matches its semantics: only `name` is refreshed on conflict.
+    ModuleProduct = apps.get_model('billing', 'ModuleProduct')
+    for module, name, price, quota in _AI_GRADING_PRODUCTS:
+        ModuleProduct.objects.update_or_create(
+            module=module,
+            defaults={
+                'name': name,
+                'stripe_price_id': '',
+                'price': price,
+                'is_active': True,
+                'questions_per_month': quota,
+            },
+        )
+
+
+def _unseed_ai_grading_products(apps, schema_editor):
+    ModuleProduct = apps.get_model('billing', 'ModuleProduct')
+    ModuleProduct.objects.filter(
+        module__in=[m for m, *_ in _AI_GRADING_PRODUCTS],
+    ).delete()
+
 
 class Migration(migrations.Migration):
 
@@ -69,18 +100,5 @@ class Migration(migrations.Migration):
         ),
 
         # Seed the three AI grading module products
-        migrations.RunSQL(
-            sql="""
-                INSERT INTO billing_moduleproduct (module, name, stripe_price_id, price, is_active, questions_per_month)
-                VALUES
-                    ('ai_grading_starter',      'AI Grading - Starter',      '', 15.00, 1, 1000),
-                    ('ai_grading_professional', 'AI Grading - Professional',  '', 49.00, 1, 5000),
-                    ('ai_grading_enterprise',   'AI Grading - Enterprise',    '', 149.00, 1, NULL)
-                ON DUPLICATE KEY UPDATE name=VALUES(name);
-            """,
-            reverse_sql="""
-                DELETE FROM billing_moduleproduct
-                WHERE module IN ('ai_grading_starter', 'ai_grading_professional', 'ai_grading_enterprise');
-            """,
-        ),
+        migrations.RunPython(_seed_ai_grading_products, _unseed_ai_grading_products),
     ]
