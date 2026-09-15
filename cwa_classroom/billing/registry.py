@@ -278,6 +278,7 @@ BASE_NAMESPACES = frozenset({
     'sprints',
     'maths',         # subject content — see SUBJECT_PACKS below
     'coding',
+    'languages',
     'music',
     'science',
 })
@@ -297,6 +298,7 @@ BASE_APPS = frozenset({
     'number_puzzles',
     'maths',
     'coding',
+    'languages',     # subject content — see SUBJECT_PACKS below
     'music',
     'science',
     'homework',
@@ -329,9 +331,10 @@ FULLY_MODULAR_APPS = frozenset({
     'attendance', 'brainbuzz', 'worksheets', 'ai_import',
 })
 
-#: Subject packs are a *future* split: maths and coding are base today. Listed
-#: so the intent is on the record and the change is one line, not an audit.
-SUBJECT_PACKS_NOT_YET_SOLD = ('maths', 'coding')
+#: Subject packs are a *future* split: maths, coding and languages are base
+#: today. Listed so the intent is on the record and the change is one line,
+#: not an audit.
+SUBJECT_PACKS_NOT_YET_SOLD = ('maths', 'coding', 'languages')
 
 
 # ---------------------------------------------------------------------------
