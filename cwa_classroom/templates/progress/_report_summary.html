@@ -63,7 +63,7 @@
 
       {% if s.maths.times_tables %}
         <div class="px-4 pt-4 pb-2">
-          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Times tables <span class="font-normal normal-case text-gray-400">— best multiplication / division score</span></p>
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Times tables <span class="font-normal normal-case text-gray-400">— latest multiplication / division score, with best</span></p>
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {% for tt in s.maths.times_tables %}
               <div class="rounded-lg border px-3 py-2 {% if tt.needs_refresh %}border-amber-200 bg-amber-50/40{% else %}border-slate-100{% endif %}">
@@ -84,6 +84,18 @@
                 practised rather than quietly presenting an old score as
                 current — see maths/times_table_freshness.py.
                 {% endcomment %}
+                {% comment %}
+                The best is named only where it beats the latest run, so a
+                report does not repeat "best 100%" under a 100% score.
+                {% endcomment %}
+                {% if tt.multiplication_best_pct > tt.multiplication_pct or tt.division_best_pct > tt.division_pct %}
+                  <p class="text-xs text-gray-400 mt-1">
+                    best
+                    {% if tt.multiplication_best_pct > tt.multiplication_pct %}&times; {{ tt.multiplication_best_pct }}%{% endif %}
+                    {% if tt.multiplication_best_pct > tt.multiplication_pct and tt.division_best_pct > tt.division_pct %}&middot;{% endif %}
+                    {% if tt.division_best_pct > tt.division_pct %}&divide; {{ tt.division_best_pct }}%{% endif %}
+                  </p>
+                {% endif %}
                 {% if tt.last_practised_ago %}
                   <p class="text-xs mt-1 {% if tt.needs_refresh %}text-amber-700 font-semibold{% else %}text-gray-400{% endif %}">
                     {% if tt.needs_refresh %}&#9203; {% endif %}last practised {{ tt.last_practised_ago }} ago

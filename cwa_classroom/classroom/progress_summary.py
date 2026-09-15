@@ -138,48 +138,50 @@ def worksheet_section(student, classroom, mode='summary', ids=None):
 # ---------------------------------------------------------------------------
 
 def _maths_times_tables(student):
-    """Best multiplication / division % per times-table, and how current it is.
+    """Latest multiplication / division % per times-table, with the best kept.
 
-    The percentages are all-time bests, which is what a teacher or parent wants
-    to see — but a best score has no expiry date, so on its own it cannot
-    distinguish "knows their 7s" from "knew their 7s in March". ``freshness``
-    answers that from the most recent attempt, without discarding or discounting
-    the score (see ``maths.times_table_freshness``).
+    ``multiplication_pct`` / ``division_pct`` are the student's **most recent**
+    scores. They used to be all-time bests, and a best score never goes down —
+    so the report could not distinguish "knows their 7s" from "knew their 7s in
+    March", which is the wrong thing to hand a parent. The bests are still
+    reported alongside, because a report that showed only today's run would let
+    one off day erase a term of evidence.
+
+    ``freshness`` says how current the latest run is (see
+    ``maths.times_table_freshness``); the reading itself comes from
+    ``maths.times_table_results`` so this report, the dashboard wall and the
+    picker cannot disagree about the same table.
     """
-    from maths import times_table_freshness
-    from maths.models import StudentFinalAnswer
+    from maths import times_table_freshness, times_table_results
 
-    best = {}  # table -> {op: (points, pct)}
-    for r in StudentFinalAnswer.objects.filter(
-        student=student, quiz_type='times_table', table_number__isnull=False,
-    ).values('table_number', 'operation', 'score', 'total_questions', 'points'):
-        slot = best.setdefault(r['table_number'], {})
-        op = r['operation'] or ''
-        pct = _pct(r['score'], r['total_questions'])
-        if op not in slot or r['points'] > slot[op][0]:
-            slot[op] = (r['points'], pct)
+    results = times_table_results.results_map(student)
 
-    # Freshness is per table, not per operation: the question a report answers
-    # is "when did this child last sit down to their 7 times table", and the
-    # later of the two operations is that date.
-    freshness = times_table_freshness.describe_map(student)
-    latest = {}
-    for (table, _operation), info in freshness.items():
-        current = latest.get(table)
-        if current is None or info['days'] < current['days']:
-            latest[table] = info
+    by_table = {}
+    for (table, operation), info in results.items():
+        by_table.setdefault(table, {})[operation] = info
 
-    return [
-        {
-            'table': t,
-            'multiplication_pct': best[t].get('multiplication', (0, None))[1],
-            'division_pct': best[t].get('division', (0, None))[1],
-            'freshness': (latest.get(t) or {}).get('state', times_table_freshness.NEVER),
-            'last_practised_ago': (latest.get(t) or {}).get('ago'),
-            'needs_refresh': bool((latest.get(t) or {}).get('needs_refresh')),
-        }
-        for t in sorted(best)
-    ]
+    rows = []
+    for table in sorted(by_table):
+        ops = by_table[table]
+        mul, div = ops.get('multiplication'), ops.get('division')
+        # Freshness is per table, not per operation: the question a report
+        # answers is "when did this child last sit down to their 7 times
+        # table", and the later of the two operations is that date.
+        attempted = [o for o in (mul, div) if o]
+        freshest = min(
+            attempted, key=lambda o: o['freshness']['days'],
+        )['freshness'] if attempted else {}
+        rows.append({
+            'table': table,
+            'multiplication_pct': mul['latest_pct'] if mul else None,
+            'division_pct': div['latest_pct'] if div else None,
+            'multiplication_best_pct': mul['best_pct'] if mul else None,
+            'division_best_pct': div['best_pct'] if div else None,
+            'freshness': freshest.get('state', times_table_freshness.NEVER),
+            'last_practised_ago': freshest.get('ago'),
+            'needs_refresh': bool(freshest.get('needs_refresh')),
+        })
+    return rows
 
 
 def _maths_topics(student):
