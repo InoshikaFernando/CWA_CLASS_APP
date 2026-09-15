@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Spelling — {{ language.name }}{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+{% if font_query %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family={{ font_query|safe }}&display=swap" rel="stylesheet">
+{% endif %}
+<style>
+  .spelling-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+  #play-btn.playing { background:#fef3c7; border-color:#d97706; }
+  #spelling-input {
+    font-family: {{ font_family|safe }}, sans-serif;
+    font-size: 1.5rem;
+    text-align: center;
+    width: 100%;
+    border: 2px solid #d1d5db;
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem;
+    outline: none;
+    transition: border-color .15s;
+  }
+  #spelling-input:focus { border-color: #059669; box-shadow: 0 0 0 3px rgba(5,150,105,0.15); }
+  #spelling-input:disabled { background: #f9fafb; color: #6b7280; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-lg mx-auto py-6 px-4">
+
+  {# Back #}
+  <button type="button" onclick="history.back()"
+          class="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-5 bg-transparent border-0 p-0 cursor-pointer">
+    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+    </svg>
+    Back
+  </button>
+
+  {# Header #}
+  <div class="mb-5">
+    <span class="text-xs font-semibold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+      {{ language.name }} · Spelling
+    </span>
+    <h1 class="mt-2 text-xl font-bold text-gray-800">Type the word you hear</h1>
+    <p class="text-sm text-gray-500 mt-1">Listen, then type the correct spelling below.</p>
+  </div>
+
+  {# Sound card #}
+  <div class="spelling-card p-6 mb-5 flex flex-col items-center gap-4">
+    <button id="play-btn"
+            type="button"
+            aria-label="Play word"
+            class="w-24 h-24 rounded-full border-2 border-emerald-300 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:border-emerald-400 transition flex flex-col items-center justify-center gap-1 focus:outline-none focus:ring-2 focus:ring-emerald-400">
+      <svg class="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round"
+              d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53L6.75 15.75H4.5A1.5 1.5 0 013 14.25v-4.5A1.5 1.5 0 014.5 8.25h2.25z"/>
+      </svg>
+      <span class="text-xs font-medium">Play</span>
+    </button>
+    <p class="text-sm text-gray-400">Tap to hear the word again</p>
+
+    {% if audio_file_url %}
+    <audio id="audio-fallback" src="{{ audio_file_url }}" preload="auto"></audio>
+    {% elif exercise.media_url %}
+    <audio id="audio-fallback" src="{{ exercise.media_url }}" preload="auto"></audio>
+    {% endif %}
+  </div>
+
+  {# Type area #}
+  <div class="spelling-card p-5 mb-5"
+       id="type-area"
+       data-submit-url="{% url 'languages:exercise_detail' exercise_id=exercise.id %}"
+       data-csrf="{{ csrf_token }}"
+       data-tts-lang="{{ tts_lang }}"
+       data-tts-text="{{ exercise.prompt }}">
+
+    <label for="spelling-input" class="block text-sm font-semibold text-gray-600 mb-3 text-center">
+      Type the spelling here
+    </label>
+
+    <input id="spelling-input"
+           type="text"
+           lang="{{ language.code }}"
+           autocomplete="off"
+           autocorrect="off"
+           autocapitalize="none"
+           spellcheck="false"
+           placeholder="Type here…"
+           aria-label="Spell the word you heard" />
+
+    <div class="mt-4 flex justify-center">
+      <button id="btn-submit"
+              type="button"
+              disabled
+              class="px-8 py-2.5 text-sm font-semibold rounded-lg bg-emerald-600 text-white
+                     hover:bg-emerald-700 transition
+                     disabled:opacity-40 disabled:cursor-not-allowed">
+        Check
+      </button>
+    </div>
+  </div>
+
+  {# Result panel #}
+  <div id="result-panel" hidden class="spelling-card p-5 mb-4 text-center">
+    <p id="result-icon" class="text-4xl mb-2"></p>
+    <p id="result-msg"  class="text-lg font-bold mb-1"></p>
+    <p id="result-sub"  class="text-sm text-gray-500 mb-2"></p>
+    <p id="result-word" class="text-2xl font-bold mb-4"
+       style="font-family: {{ font_family|safe }}, sans-serif; color: #1e3a8a;"></p>
+    <button id="btn-try-again" type="button"
+            class="px-5 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition">
+      Try Again
+    </button>
+  </div>
+
+  <p class="text-xs text-gray-400 text-right">
+    Worth <strong>{{ exercise.points }}</strong> point{{ exercise.points|pluralize }}.
+  </p>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<script src="{% static 'languages/js/spelling_type.js' %}"></script>
+{% endblock %}

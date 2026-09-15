@@ -83,6 +83,7 @@ jobs:
       progress: ${{ steps.filter.outputs.progress }}
       usage: ${{ steps.filter.outputs.usage }}
       rewards: ${{ steps.filter.outputs.rewards }}
+      languages: ${{ steps.filter.outputs.languages }}
       ui_core: ${{ steps.filter.outputs.ui_core }}
       ui_billing: ${{ steps.filter.outputs.ui_billing }}
       ui_brainbuzz: ${{ steps.filter.outputs.ui_brainbuzz }}
@@ -99,6 +100,7 @@ jobs:
       ui_quiz: ${{ steps.filter.outputs.ui_quiz }}
       ui_uploads: ${{ steps.filter.outputs.ui_uploads }}
       ui_worksheets: ${{ steps.filter.outputs.ui_worksheets }}
+      ui_languages: ${{ steps.filter.outputs.ui_languages }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -287,6 +289,8 @@ jobs:
               - 'cwa_classroom/classroom/**'
               - 'cwa_classroom/accounts/**'
               - 'cwa_classroom/templates/hub/**'
+            languages:
+              - 'cwa_classroom/languages/**'
             # ---- UI (Playwright) --------------------------------------------
             # One filter per ui_tests/<group>/ package. The names MUST stay in
             # lockstep with the directories on disk — tests_workflows.py fails
@@ -465,6 +469,8 @@ jobs:
               - 'cwa_classroom/templates/progress/**'
             ui_quiz:
               - 'cwa_classroom/ui_tests/quiz/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/brainbuzz/**'
               - 'cwa_classroom/classroom/**'
               - 'cwa_classroom/maths/**'
               - 'cwa_classroom/quiz/**'
@@ -541,6 +547,15 @@ jobs:
               # builder tests fail with nothing under worksheets/ touched.
               - 'cwa_classroom/coding/**'
               - 'cwa_classroom/templates/coding/**'
+            ui_languages:
+              - 'cwa_classroom/ui_tests/languages/**'
+              - 'cwa_classroom/accounts/**'
+              - 'cwa_classroom/classroom/**'
+              - 'cwa_classroom/languages/**'
+              # The worksheet builder's question picker takes a
+              # ?subject=languages filter, so a change under worksheets/ can
+              # break that cross-app entry point without touching languages/.
+              - 'cwa_classroom/worksheets/**'
 
       # ---- Has the release PR's tree actually passed on `test`? -------------
       #
@@ -644,6 +659,7 @@ jobs:
             coding:coding/
             feedback:feedback/
             homework:homework/
+            languages:languages/tests/
             maths:maths/
             notifications:notifications/
             ops:ops/
@@ -1062,6 +1078,11 @@ jobs:
           # little balance, never coverage — but re-measure after anything that
           # moves the suite this much. tests_workflows.py fails the build if a
           # group has no entry.
+          #
+          # `languages` is not yet re-measured on a CI runner (added with that
+          # UI group) — estimated from a local run of comparable shape to
+          # quiz/homework (similar test count, canvas/Playwright-heavy).
+          # Replace with a real number once it has run on CI a few times.
           UI_WEIGHTS: |
             billing:472
             classroom:469
@@ -1069,6 +1090,7 @@ jobs:
             parent:252
             messaging:222
             homework:192
+            languages:150
             quiz:143
             maths:113
             uploads:91

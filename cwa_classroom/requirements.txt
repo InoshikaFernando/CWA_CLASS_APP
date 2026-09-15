@@ -26,6 +26,7 @@ resend>=2.0
 # bound stops the next major arriving the same way. Tested on 1.99.1 and 2.0.0.
 svix>=1.0,<3.0
 redis>=5.0.0
+gTTS>=2.5.0
 django-rq>=2.10.0
 phonenumbers>=8.13
 # Server-side PDF rendering for the end-of-period progress reports (CPP-388).

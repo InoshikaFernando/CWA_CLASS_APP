@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Crossword — {{ language.name }}{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+{% if font_query %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family={{ font_query|safe }}&display=swap" rel="stylesheet">
+{% endif %}
+<style>
+  /* ── Layout ─────────────────────────────────────────────── */
+  .cw-wrap   { display:flex; gap:1.25rem; align-items:flex-start; }
+  .cw-left   { flex:0 0 auto; }
+  .cw-right  { flex:1 1 0; min-width:0; }
+
+  /* ── Grid ────────────────────────────────────────────────── */
+  .cw-grid-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .cw-table  { border-collapse:collapse; line-height:1; }
+  .cw-table td { padding:0; width:42px; height:42px; border:1px solid #d1d5db; position:relative; }
+  .cw-black  { background:#1f2937; border-color:#1f2937; }
+  .cw-cell   { background:#fff; }
+  .cw-cell.active-word { background:#ecfdf5; }
+  .cw-cell.active-cell { background:#a7f3d0; }
+  .cw-cell.cell-correct   { background:#d1fae5 !important; }
+  .cw-cell.cell-incorrect { background:#fee2e2 !important; }
+
+  .cw-num {
+    position:absolute; top:2px; left:2px;
+    font-size:9px; font-weight:700; color:#374151; line-height:1;
+    pointer-events:none; user-select:none;
+  }
+
+  .cw-input {
+    position:absolute; inset:0;
+    width:100%; height:100%;
+    border:none; outline:none; background:transparent;
+    text-align:center;
+    font-family: {{ font_family|safe }}, sans-serif;
+    font-size:1.15rem; font-weight:700;
+    color:#1e3a8a;
+    text-transform:uppercase;
+    caret-color:transparent;
+    padding:0;
+  }
+
+  /* Non-Latin scripts need a taller cell */
+  {% if language.script_type != 'latin' %}
+  .cw-table td { width:50px; height:52px; }
+  .cw-input    { font-size:1.4rem; }
+  {% endif %}
+
+  /* ── Clue list ───────────────────────────────────────────── */
+  .cw-clue-section h3 { font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#6b7280; margin-bottom:.4rem; }
+  .cw-clue-item { display:flex; gap:.4rem; align-items:baseline; padding:.25rem .4rem; border-radius:.375rem; cursor:pointer; font-size:.85rem; color:#374151; }
+  .cw-clue-item:hover { background:#f3f4f6; }
+  .cw-clue-item.active-clue { background:#ecfdf5; color:#065f46; font-weight:600; }
+  .cw-clue-num { font-weight:700; min-width:1.4rem; color:#059669; flex-shrink:0; }
+
+  /* ── Mobile clue bar ─────────────────────────────────────── */
+  .cw-mobile-clue {
+    position:sticky; bottom:0; left:0; right:0;
+    background:#065f46; color:#fff;
+    padding:.6rem 1rem;
+    font-size:.875rem; font-weight:500;
+    display:flex; align-items:center; gap:.5rem;
+    cursor:pointer;
+  }
+  .cw-mobile-clue .cw-mc-num  { font-weight:700; color:#a7f3d0; flex-shrink:0; }
+  .cw-mobile-clue .cw-mc-text { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cw-mobile-clue .cw-mc-icon { flex-shrink:0; }
+
+  /* Mobile modal sheet */
+  .cw-modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:50; }
+  .cw-modal-overlay.open { display:block; }
+  .cw-modal-sheet {
+    position:absolute; bottom:0; left:0; right:0;
+    background:#fff; border-radius:1rem 1rem 0 0;
+    padding:1rem; max-height:70vh; overflow-y:auto;
+  }
+  .cw-modal-handle { width:2.5rem; height:.25rem; background:#d1d5db; border-radius:9999px; margin:0 auto .75rem; }
+
+  /* ── Toolbar ─────────────────────────────────────────────── */
+  .cw-toolbar { display:flex; gap:.5rem; flex-wrap:wrap; margin-top:1rem; }
+
+  /* ── Result bar ──────────────────────────────────────────── */
+  #cw-result { display:none; }
+  #cw-result.show { display:flex; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto py-6 px-4">
+
+  {# Back #}
+  <button type="button" onclick="history.back()"
+          class="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-5 bg-transparent border-0 p-0 cursor-pointer">
+    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+    </svg>
+    Back
+  </button>
+
+  {# Header #}
+  <div class="mb-5">
+    <span class="text-xs font-semibold uppercase tracking-wider text-violet-600 bg-violet-50 px-2 py-0.5 rounded-full">
+      {{ language.name }} · Crossword
+    </span>
+    <h1 class="mt-2 text-xl font-bold text-gray-800">{{ exercise.prompt }}</h1>
+    <p class="text-sm text-gray-500 mt-1">Fill in the grid — click a cell then type. <strong>Check</strong> when ready.</p>
+  </div>
+
+  {% if words %}
+
+  {# ── Main layout ─────────────────────────────────────────── #}
+  <div class="cw-wrap">
+
+    {# Grid + toolbar #}
+    <div class="cw-left">
+      <div class="cw-grid-scroll"
+           id="cw-container"
+           data-submit-url="{% url 'languages:exercise_detail' exercise_id=exercise.id %}"
+           data-csrf="{{ csrf_token }}"
+           data-lang="{{ language.code }}"
+           data-script="{{ language.script_type }}"
+           data-puzzle="{{ puzzle_data }}">
+
+        <table class="cw-table" id="cw-table" aria-label="Crossword puzzle grid">
+          {% for row in grid %}
+          <tr>
+            {% for cell in row %}
+              {% if cell %}
+              <td class="cw-cell" data-row="{{ forloop.parentloop.counter0 }}" data-col="{{ forloop.counter0 }}">
+                {% if cell.number %}<span class="cw-num">{{ cell.number }}</span>{% endif %}
+                <input class="cw-input"
+                       type="text"
+                       maxlength="2"
+                       autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false"
+                       lang="{{ language.code }}"
+                       aria-label="Row {{ forloop.parentloop.counter0 }} Col {{ forloop.counter0 }}" />
+              </td>
+              {% else %}
+              <td class="cw-black" aria-hidden="true"></td>
+              {% endif %}
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </table>
+
+      </div>{# /cw-grid-scroll #}
+
+      {# Result bar #}
+      <div id="cw-result" class="mt-3 items-center gap-3 p-3 rounded-xl border">
+        <span id="cw-result-icon" class="text-2xl"></span>
+        <div>
+          <p id="cw-result-msg"  class="font-bold text-sm"></p>
+          <p id="cw-result-sub"  class="text-xs text-gray-500"></p>
+        </div>
+      </div>
+
+      {# Toolbar #}
+      <div class="cw-toolbar">
+        <button id="btn-check" type="button"
+                class="px-5 py-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
+          Check
+        </button>
+        <button id="btn-reveal" type="button"
+                class="px-5 py-2 text-sm font-semibold rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                disabled>
+          Reveal Word
+        </button>
+        <button id="btn-reset" type="button"
+                class="px-5 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition">
+          Try Again
+        </button>
+      </div>
+
+      <p class="text-xs text-gray-400 mt-3 text-right">
+        Worth <strong>{{ exercise.points }}</strong> point{{ exercise.points|pluralize }}.
+      </p>
+    </div>{# /cw-left #}
+
+    {# Desktop clue panel #}
+    <div class="cw-right hidden lg:block" id="cw-clue-panel">
+
+      {% with across_words=words %}
+      <div class="cw-clue-section mb-5">
+        <h3>Across</h3>
+        <div id="clue-across">
+          {% for word in words %}{% if word.direction == 'across' %}
+          <div class="cw-clue-item" data-word-index="{{ word.index }}" id="clue-across-{{ word.index }}">
+            <span class="cw-clue-num">{{ word.number }}</span>
+            <span>{{ word.clue }}</span>
+          </div>
+          {% endif %}{% endfor %}
+        </div>
+      </div>
+      <div class="cw-clue-section">
+        <h3>Down</h3>
+        <div id="clue-down">
+          {% for word in words %}{% if word.direction == 'down' %}
+          <div class="cw-clue-item" data-word-index="{{ word.index }}" id="clue-down-{{ word.index }}">
+            <span class="cw-clue-num">{{ word.number }}</span>
+            <span>{{ word.clue }}</span>
+          </div>
+          {% endif %}{% endfor %}
+        </div>
+      </div>
+      {% endwith %}
+
+    </div>{# /cw-right #}
+
+  </div>{# /cw-wrap #}
+
+  {# Mobile sticky clue bar #}
+  <div class="cw-mobile-clue lg:hidden" id="cw-mobile-bar" role="button" tabindex="0" aria-label="Show all clues">
+    <span class="cw-mc-num" id="mc-num"></span>
+    <span class="cw-mc-text" id="mc-text">Select a cell to see its clue</span>
+    <svg class="cw-mc-icon w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/>
+    </svg>
+  </div>
+
+  {# Mobile modal sheet #}
+  <div class="cw-modal-overlay" id="cw-modal" role="dialog" aria-modal="true" aria-label="All clues">
+    <div class="cw-modal-sheet">
+      <div class="cw-modal-handle"></div>
+      <div class="mb-4">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Across</h3>
+        {% for word in words %}{% if word.direction == 'across' %}
+        <div class="cw-clue-item" data-word-index="{{ word.index }}">
+          <span class="cw-clue-num">{{ word.number }}</span>
+          <span class="text-sm">{{ word.clue }}</span>
+        </div>
+        {% endif %}{% endfor %}
+      </div>
+      <div>
+        <h3 class="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Down</h3>
+        {% for word in words %}{% if word.direction == 'down' %}
+        <div class="cw-clue-item" data-word-index="{{ word.index }}">
+          <span class="cw-clue-num">{{ word.number }}</span>
+          <span class="text-sm">{{ word.clue }}</span>
+        </div>
+        {% endif %}{% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {% else %}
+  <div class="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center">
+    <p class="text-amber-700 font-semibold">This crossword has no puzzle data yet.</p>
+    <p class="text-amber-600 text-sm mt-1">Run <code>python manage.py create_crossword</code> to generate it.</p>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<script src="{% static 'languages/js/crossword.js' %}"></script>
+{% endblock %}

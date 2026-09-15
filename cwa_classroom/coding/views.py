@@ -10,6 +10,7 @@ from django.conf import settings
 
 import logging
 
+from accounts.decorators import student_required
 from audit.services import log_event
 from classroom.models import SchoolStudent
 from rewards.models import PointsSource
@@ -28,27 +29,6 @@ from .models import (
 from .scoring import evaluate_submission, score_submission
 
 logger = logging.getLogger(__name__)
-
-
-def student_required(view_func):
-    """Decorator: allow only authenticated students.
-
-    Elevated non-student roles must not accumulate CodingTimeLog records or
-    StudentProblemSubmission rows.
-    """
-    @wraps(view_func)
-    def _wrapped(request, *args, **kwargs):
-        blocked_flags = (
-            'is_teacher',
-            'is_head_of_institute',
-            'is_head_of_department',
-            'is_institute_owner',
-            'is_admin_user',
-        )
-        if any(getattr(request.user, flag, False) for flag in blocked_flags):
-            return redirect('home')
-        return view_func(request, *args, **kwargs)
-    return _wrapped
 
 
 def teacher_required(view_func):
@@ -73,7 +53,6 @@ def teacher_required(view_func):
             return redirect('home')
         return view_func(request, *args, **kwargs)
     return _wrapped
-
 
 
 # ---------------------------------------------------------------------------

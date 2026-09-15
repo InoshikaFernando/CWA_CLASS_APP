@@ -1,0 +1,24 @@
+{% comment %}
+  Included by the homework result view.
+  Context: ans (HomeworkStudentAnswer), with extra fields set by result_item_context().
+  ctx.ans is passed directly — access as ans.
+{% endcomment %}
+
+{% with ans=ctx.ans %}
+<div class="flex items-start gap-3 py-2">
+  <div class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold
+    {% if ans.is_correct %}bg-emerald-100 text-emerald-700{% else %}bg-red-100 text-red-700{% endif %}">
+    {% if ans.is_correct %}✓{% else %}✗{% endif %}
+  </div>
+  <div class="flex-1 min-w-0">
+    <p class="text-sm font-semibold
+      {% if ans.is_correct %}text-emerald-700{% else %}text-red-700{% endif %}">
+      {% if ans.is_correct %}Correct{% else %}Incorrect{% endif %}
+      <span class="text-gray-500 font-normal ml-1">+{{ ans.points_earned }} pt{{ ans.points_earned|pluralize }}</span>
+    </p>
+    {% if ans.text_answer %}
+    <p class="text-xs text-gray-500 mt-0.5 truncate">Answer: {{ ans.text_answer }}</p>
+    {% endif %}
+  </div>
+</div>
+{% endwith %}

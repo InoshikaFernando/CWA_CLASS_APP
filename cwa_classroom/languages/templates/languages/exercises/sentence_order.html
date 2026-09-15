@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Sentence Order — {{ language.name }}{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+{% if font_query %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family={{ font_query|safe }}&display=swap" rel="stylesheet">
+{% endif %}
+<style>
+  .so-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+
+  .word-tile {
+    font-family: {{ font_family|safe }}, sans-serif;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 1rem;
+    min-height: 44px;
+    background: #fff;
+    border: 2px solid #d1d5db;
+    border-radius: 0.625rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1f2937;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+    transition: border-color .15s, box-shadow .15s, transform .1s;
+  }
+  .word-tile:hover { border-color: #a855f7; box-shadow: 0 2px 8px rgba(168,85,247,.15); }
+  .word-tile.sortable-chosen  { box-shadow: 0 4px 16px rgba(168,85,247,.3); transform: scale(1.05); border-color: #a855f7; }
+  .word-tile.sortable-ghost   { opacity: 0.35; }
+  .word-tile.sortable-drag    { cursor: grabbing; }
+
+  #word-bank {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    min-height: 60px;
+    padding: 0.75rem;
+    background: #faf5ff;
+    border: 2px dashed #d8b4fe;
+    border-radius: 0.75rem;
+  }
+
+  #answer-zone {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    min-height: 60px;
+    padding: 0.75rem;
+    background: #fff;
+    border: 2px dashed #d1d5db;
+    border-radius: 0.75rem;
+    transition: border-color .2s, background .2s;
+  }
+  #answer-zone.drag-over {
+    border-color: #a855f7;
+    background: #faf5ff;
+  }
+  #answer-zone:empty::after {
+    content: "Drag words here to build the sentence";
+    color: #9ca3af;
+    font-size: 0.875rem;
+    font-style: italic;
+    display: flex;
+    align-items: center;
+    width: 100%;
+  }
+
+  #btn-submit:disabled { opacity: 0.45; cursor: not-allowed; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto py-6 px-4">
+
+  {# Back #}
+  <button type="button" onclick="history.back()"
+          class="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-5 bg-transparent border-0 p-0 cursor-pointer">
+    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+    </svg>
+    Back
+  </button>
+
+  {# Header #}
+  <div class="mb-5">
+    <span class="text-xs font-semibold uppercase tracking-wider text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">
+      {{ language.name }} · Sentence Order
+    </span>
+    <h1 class="mt-2 text-xl font-bold text-gray-800">Build the sentence</h1>
+    <p class="text-sm text-gray-500 mt-1">Drag the word tiles into the correct order.</p>
+  </div>
+
+  {# Word bank #}
+  <div class="so-card p-4 mb-4">
+    <p class="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Word bank</p>
+    <div id="word-bank"
+         aria-label="Word bank — drag tiles from here"
+         lang="{{ language.code }}">
+      {# Tiles injected by JS from word_order (shuffled) #}
+    </div>
+  </div>
+
+  {# Answer zone #}
+  <div class="so-card p-4 mb-5">
+    <p class="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Your sentence</p>
+    <div id="answer-zone"
+         aria-label="Drop zone — arrange words here"
+         lang="{{ language.code }}">
+    </div>
+  </div>
+
+  {# Submit #}
+  <button id="btn-submit" type="button" disabled
+          data-submit-url="{% url 'languages:exercise_detail' exercise_id=exercise.id %}"
+          data-csrf="{{ csrf_token }}"
+          data-word-order="{{ word_order }}"
+          class="w-full py-3 px-6 rounded-xl font-bold text-white bg-purple-600 hover:bg-purple-700 transition focus:outline-none focus:ring-2 focus:ring-purple-400 mb-4">
+    Check my sentence
+  </button>
+
+  {# Result panel #}
+  <div id="result-panel" hidden class="so-card p-5 mb-4 text-center">
+    <p id="result-icon" class="text-4xl mb-2"></p>
+    <p id="result-msg"  class="text-lg font-bold mb-1"></p>
+    <p id="result-score" class="text-sm text-gray-500 mb-3"></p>
+    <div id="result-sentence-wrap" hidden class="mb-4 px-4 py-3 bg-purple-50 border border-purple-100 rounded-lg text-left">
+      <p class="text-xs font-bold uppercase tracking-wide text-purple-700 mb-1">Correct sentence</p>
+      <p id="result-sentence"
+         class="text-base font-semibold text-gray-800"
+         style="font-family: {{ font_family|safe }}, sans-serif;"
+         lang="{{ language.code }}"></p>
+    </div>
+    <div class="flex gap-3 justify-center">
+      <button id="btn-try-again" type="button"
+              class="px-5 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition">
+        Try Again
+      </button>
+    </div>
+  </div>
+
+  <p class="text-xs text-gray-400 text-right">
+    Worth up to <strong>{{ exercise.points }}</strong> point{{ exercise.points|pluralize }}.
+    Partial credit awarded for partially correct answers.
+  </p>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<script src="{% static 'languages/js/sentence_order.js' %}"></script>
+{% endblock %}
