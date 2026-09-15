@@ -1898,14 +1898,25 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
                     'Only a 100% off code can grant Student Basic. This code '
                     f'still charges {100 - percent_val}% of the price.')
 
+        # How long the access lasts. Read for BOTH student code types, because
+        # both models carry the field and both honour it at redemption — a
+        # Student (Billing) code's ``grant_days`` sets ``trial_end`` on the
+        # subscription, which is the only thing that ever ends the access.
+        #
+        # It used to be parsed for a promo code only, and the form only ever
+        # showed it for one. So the combination the two-week promotions
+        # actually need — Student Basic, for a fortnight — could not be built
+        # here at all: ticking the tier got you a code with no window, i.e.
+        # the free edition forever, with nothing saying so.
+        if target_type in ('student_promo', 'student_discount') and grant_days:
+            try:
+                grant_days_val = int(grant_days)
+                if grant_days_val < 1:
+                    errors['grant_days'] = 'Must be at least 1.'
+            except ValueError:
+                errors['grant_days'] = 'Enter a valid number.'
+
         if target_type == 'student_promo':
-            if grant_days:
-                try:
-                    grant_days_val = int(grant_days)
-                    if grant_days_val < 1:
-                        errors['grant_days'] = 'Must be at least 1.'
-                except ValueError:
-                    errors['grant_days'] = 'Enter a valid number.'
             try:
                 class_limit_val = int(class_limit)
                 if class_limit_val < 0:
@@ -1984,6 +1995,7 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
             dc = DiscountCode.objects.create(
                 code=code, discount_percent=percent_val,
                 max_uses=max_uses_val,
+                grant_days=grant_days_val,
                 duration=duration,
                 duration_in_months=duration_in_months_val,
                 expires_at=expires_at_val,
@@ -1991,6 +2003,20 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
             )
             if selected_packages:
                 dc.applicable_packages.set(selected_packages)
+
+            # A free tier with no end date is a real thing — CWA's own free
+            # students are on exactly that — so this is a warning and not a
+            # refusal. But it is the one combination somebody reaches by
+            # accident: they tick Student Basic meaning "a fortnight", leave
+            # Access Duration blank, and hand out permanent free access with
+            # nothing on the screen having said so.
+            if grants_student_basic and not grant_days_val:
+                messages.warning(
+                    request,
+                    f'"{dc.code}" grants Student Basic with no access duration, '
+                    f'so it never expires — students who redeem it keep the '
+                    f'free edition indefinitely. If you meant a limited '
+                    f'promotion, edit the code and set Access Duration.')
 
             from .stripe_service import ensure_stripe_coupon, UNSYNCED_COUPON_WARNING
             synced, sync_error = ensure_stripe_coupon(dc)
@@ -2003,6 +2029,7 @@ class CouponCodeCreateView(SuperuserRequiredMixin, View):
                 action='coupon_code_created',
                 detail={'type': 'student_discount', 'code': code,
                         'discount_percent': percent_val,
+                        'grant_days': grant_days_val,
                         'grants_student_basic': grants_student_basic},
                 request=request,
             )

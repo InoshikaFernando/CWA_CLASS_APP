@@ -145,7 +145,7 @@
     <!-- Questions -->
     {% for q in questions %}
     <div class="q-card bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4{% if q.needs_review and not q.review_ack %} needs-review{% endif %}"
-         id="q-{{ forloop.counter0 }}">
+         id="q-{{ forloop.counter0 }}" data-review-card data-review-number="{{ forloop.counter }}">
       <div class="flex items-start gap-3">
         <label class="flex items-center gap-2 cursor-pointer mt-0.5">
           <input type="checkbox" name="q_{{ forloop.counter0 }}_include" {% if q.include != False %}checked{% endif %}
@@ -175,10 +175,14 @@
           👁 Preview as student
         </button>
         <div class="flex-1 space-y-3">
-          <textarea name="q_{{ forloop.counter0 }}_text" rows="2"
-                    class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">{{ q.question_text }}</textarea>
+          {% include "_partials/review_points.html" with q=q idx=forloop.counter0 %}
 
-          <div>
+          <div data-review-field="question">
+            <textarea name="q_{{ forloop.counter0 }}_text" rows="2"
+                      class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary transition">{{ q.question_text }}</textarea>
+          </div>
+
+          <div data-review-field="image">
             <p class="text-xs text-gray-400 mb-1">Question image</p>
             <div class="mb-2 {% if not q.image_b64 %}hidden{% endif %}" id="img-wrap-{{ forloop.counter0 }}">
               <img src="{% if q.image_b64 %}data:image/png;base64,{{ q.image_b64 }}{% endif %}"
@@ -205,7 +209,7 @@
           </div>
 
           <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div>
+            <div data-review-field="type">
               <label class="text-xs text-gray-500 font-medium">Type</label>
               <select name="q_{{ forloop.counter0 }}_type" class="w-full mt-1 rounded-md border border-gray-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary transition">
                 {% for val, label in question_types %}
@@ -290,14 +294,14 @@
 
           </div>
 
-          <div>
+          <div data-review-field="explanation">
             <label class="text-xs text-gray-500 font-medium">Explanation (shown to students on wrong answer)</label>
             <textarea name="q_{{ forloop.counter0 }}_explanation" rows="2"
                       class="w-full mt-1 rounded-lg border border-gray-200 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary transition">{{ q.explanation }}</textarea>
           </div>
 
           {% if q.answers %}
-          <div>
+          <div data-review-field="answer">
             <label class="text-xs text-gray-500 font-medium mb-1 block">Answers (tick the correct one)</label>
             {% if q.answer_warning %}
             <p class="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">⚠ {{ q.answer_warning }}</p>
@@ -328,6 +332,7 @@
     {% endfor %}
 
     {% if questions %}
+    {% include "_partials/review_gate.html" %}
     <div class="flex gap-3">
       <button type="submit"
               class="px-6 py-2.5 rounded-xl bg-primary text-white font-semibold text-sm shadow-sm hover:bg-primary/90 transition">
@@ -430,4 +435,5 @@
   });
 })();
 </script>
+{% include "_partials/review_points_js.html" %}
 {% endblock %}
