@@ -455,7 +455,6 @@ SCREENSHOT_DPI = int(os.environ.get('WORKSHEET_SCREENSHOT_DPI', '150'))
 # figures onto one page; extra pixels give Claude finer coordinates to localise each
 # shape, so the per-shape bboxes come back tighter. Bbox *correctness* is DPI-independent
 # (coords convert via each page's stored dims) — this only improves placement precision.
-SHAPE_NAMING_DPI = int(os.environ.get('WORKSHEET_SHAPE_NAMING_DPI', '200'))
 
 # DPI for the FINAL rendered question-image crop. This is independent of the
 # page-screenshot DPI: the screenshot only needs to be legible enough for Claude
@@ -600,6 +599,17 @@ EXTRACTED_QUESTION_TYPE_CHOICES = [
 
 EXTRACTED_QUESTION_TYPES = [value for value, _label in EXTRACTED_QUESTION_TYPE_CHOICES]
 
+# An EXTRACTOR-ONLY type. A sheet that merely displays shapes for the student to
+# identify used to need a separate "name-the-shape mode" ticked at upload, which
+# only worked when the whole PDF was one thing; real sheets mix a row of shapes
+# with ordinary questions. The classifier now emits ``name_the_shape`` per shape
+# itself (rule 19 in the prompt), and ``_normalise_name_the_shape`` turns each
+# into the multiple-choice question the app already renders and grades before
+# the preview sees it — so this value is in the schema enum but never in the
+# review dropdown or the question bank.
+NAME_THE_SHAPE_TYPE = 'name_the_shape'
+NAME_THE_SHAPE_TEXT = 'What is the name of this shape?'
+
 
 # Which structured-spec panel a review card shows for a given question type.
 #
@@ -721,7 +731,7 @@ WORKSHEET_CLASSIFICATION_TOOL = {
                         },
                         "question_type": {
                             "type": "string",
-                            "enum": list(EXTRACTED_QUESTION_TYPES),
+                            "enum": list(EXTRACTED_QUESTION_TYPES) + [NAME_THE_SHAPE_TYPE],
                         },
                         "plane_spec": {
                             "type": "object",
@@ -989,6 +999,15 @@ Rules:
    answer → "$4.50" AND "4.50"; "3/4" → "3/4" AND "0.75". Do NOT add forms that are merely
    spacing/comma/hyphen variants — the grader already ignores those.
 5. For multiple choice, list ALL provided answer options including the correct one.
+5b. PICK THE PICTURED ITEM: "Tick the cylinder", "Circle the smallest square", "Which of
+   these is a cone?" — the student chooses ONE item from a row or set of PICTURES (shapes,
+   solids, objects). The picture is the question: set has_image=true with image_bbox around
+   the WHOLE row/set of pictured items, never has_image=false. Use multiple_choice with
+   options that name POSITIONS only — "The first shape", "The second shape", "The third
+   shape" (or "Shape A/B/C" when the sheet labels them) — and NEVER name or describe what the
+   pictures show ("the can-shaped solid", "the cube"): that gives the answer away and makes
+   the picture pointless. Put the correct position as is_correct. When the task is instead
+   "every X" among 2D shapes the app can trace, use shape_select (rule 14b).
 6. Write explanations that help students understand why they got it wrong.
 7. Do NOT skip questions even if they look simple.
 8. MATCHING / "name each" questions: when ONE question asks the student to match or name
@@ -1132,6 +1151,32 @@ Rules:
    finished drawing must show in grading_rubric so the teacher can mark it on paper. Keep
    the question (do not drop it) — the app deselects teacher-graded questions by default
    and the teacher decides.
+19. NAME-THE-SHAPE ITEMS (detected by you — there is no separate mode): a sheet, section,
+   chart, grid or row that DISPLAYS shapes for the student to identify — shapes with no
+   question text of their own, or under an instruction like "name each shape", "write the
+   name of each shape", "what is this shape called?", possibly with the names already
+   printed beside them — is ONE question PER individual shape, emitted alongside whatever
+   ordinary questions the same page carries. If a page shows 8 such shapes, return 8
+   questions; never group several shapes into one. For each shape set exactly:
+   - question_type = "name_the_shape"
+   - question_text = "What is the name of this shape?"
+   - has_image = true and image_bbox = a TIGHT box around ONLY that one shape — never a
+     neighbouring shape, and never the shape's printed name, a question number or a heading;
+     a few pixels of margin around the shape itself.
+   - answers = the correct shape name (is_correct=true) plus exactly 3 plausible wrong names
+     a learner might confuse it with (square ↔ rectangle / rhombus; circle ↔ oval; pentagon ↔
+     hexagon; triangle types). Never repeat the correct name as a distractor.
+   - validation_type = "auto". difficulty 1 for circle / square / triangle / rectangle, 2 for
+     trapezium / parallelogram / rhombus / pentagon / hexagon / octagon, 3 for 3-D solids.
+   - explanation = ONE short sentence on the defining property ("A triangle has 3 straight
+     sides and 3 angles.").
+   - subject "Mathematics", strand "Geometry", topic "2D Shapes" (or "3D Shapes" for solids).
+   Identify each shape yourself from the picture. A name printed on the sheet is the ANSWER
+   and must never appear in question_text. Prefer a specific name only when it is clearly
+   distinguishable ("Equilateral triangle", "Rectangle"); otherwise use the general one
+   ("Triangle", "Quadrilateral"). This is NOT for a shape that is merely the figure of an
+   ordinary question ("find the area of this rectangle", "colour the triangles") — that
+   question keeps its own type and its figure (rules 3, 14).
    EXCEPTIONS, because the app draws these answer surfaces itself — keep them as their own
    question type with validation_type="auto": marking or reading a horizontal NUMBER LINE
    (rule 14), plotting/joining points on a CARTESIAN PLANE (rule 11), LONG DIVISION
@@ -1204,43 +1249,6 @@ For extended_answer questions (ai_graded / human_graded):
   valid reasoning chains — the rubric must accept all of them."""
 
 
-SHAPE_NAMING_SYSTEM_PROMPT = """You are building "name the shape" practice questions from a worksheet that DISPLAYS shapes.
-
-The worksheet shows one or more SHAPES — a chart, grid, row, or scattered set, possibly
-already labelled. Your job is to turn EACH INDIVIDUAL shape into its OWN question.
-
-Rules:
-1. Emit ONE question PER individual shape. If the page shows 8 shapes, return 8 questions.
-   - Never group multiple shapes into one question.
-   - Ignore any shape names already printed on the sheet — you are generating fresh
-     questions, so do not leak the answer into question_text.
-2. For EVERY shape question, set exactly:
-   - question_text = "What is the name of this shape?"
-   - question_type = "multiple_choice"
-   - validation_type = "auto"
-   - has_image = true
-   - image_bbox = a TIGHT pixel box around ONLY that ONE shape in the page screenshot.
-       * One shape per box. Never include a neighbouring shape.
-       * Do NOT include the shape's printed name/label, question numbers, or headings.
-       * Leave only a few pixels of margin around the shape itself.
-       * Coordinates are [left, top, right, bottom] in the page screenshot's pixel space.
-   - answers = the CORRECT shape name (is_correct=true) PLUS exactly 3 plausible wrong
-     shape names (is_correct=false). Distractors must be real shapes a learner might
-     confuse it with (square ↔ rectangle / rhombus; circle ↔ oval / ellipse;
-     triangle types; pentagon ↔ hexagon). Never repeat the correct name as a distractor.
-   - difficulty = 1 for common shapes (circle, square, triangle, rectangle); 2 for
-     less common ones (trapezium, parallelogram, rhombus, pentagon, hexagon, octagon);
-     3 for advanced/3-D solids.
-   - explanation = ONE short sentence on the defining property
-     (e.g. "A triangle has 3 straight sides and 3 angles.").
-3. Identify each shape yourself from the picture. Use standard names. Prefer a specific
-   name only when clearly distinguishable (e.g. "Rectangle", "Equilateral triangle");
-   otherwise use the general name ("Triangle", "Quadrilateral").
-4. Classification: subject "Mathematics", strand "Geometry", topic "2D Shapes"
-   (or "3D Shapes" for solids). Use the year level implied by the sheet, default 1.
-5. In this mode emit ONLY shape-naming questions — skip any non-shape text questions."""
-
-
 def _get_anthropic_client():
     import anthropic
     # PDF classification can take 60-90s for large worksheets — raise the
@@ -1256,14 +1264,13 @@ def _get_anthropic_client():
     )
 
 
-def _build_system_prompt(existing_topics, existing_levels, shape_naming=False):
+def _build_system_prompt(existing_topics, existing_levels):
     topic_names = ', '.join(t['name'] for t in existing_topics) if existing_topics else 'None yet'
     level_names = ', '.join(
         f"Year {l['level_number']}" for l in existing_levels if l['level_number'] <= 12
     ) if existing_levels else 'Year 1–8'
-    base = SHAPE_NAMING_SYSTEM_PROMPT if shape_naming else WORKSHEET_SYSTEM_PROMPT
     return (
-        base
+        WORKSHEET_SYSTEM_PROMPT
         + f"\n\nExisting topics in the system: {topic_names}"
         + f"\nAvailable year levels: {level_names}"
         + "\nMap to existing topics where possible."
@@ -1512,28 +1519,64 @@ def _stream_classification(client, system, tools, content_blocks):
         return stream.get_final_message()
 
 
-def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=False):
+def _normalise_name_the_shape(questions):
+    """Turn each ``name_the_shape`` item the model emitted into the multiple-choice
+    question the app renders and grades, marked ``shape_naming`` for the preview.
+
+    The type exists only so the model can say "this is a shape to identify" per
+    item (rule 19). What the bank stores is a multiple-choice question with the
+    cropped shape as its figure — exactly what the old whole-PDF mode produced,
+    now item by item and mixed with ordinary questions. Anything that would make
+    such a question unanswerable — no figure box to crop the shape from, no
+    single correct option — is sent to review with the reason rather than saved
+    looking complete. Returns how many items were normalised.
+    """
+    count = 0
+    for q in questions or []:
+        if not isinstance(q, dict) or q.get('question_type') != NAME_THE_SHAPE_TYPE:
+            continue
+        count += 1
+        q['question_type'] = 'multiple_choice'
+        q['shape_naming'] = True
+        q['validation_type'] = 'auto'
+        q['has_image'] = True
+        if not (q.get('question_text') or '').strip():
+            q['question_text'] = NAME_THE_SHAPE_TEXT
+        q.setdefault('subject', 'Mathematics')
+        q.setdefault('strand', 'Geometry')
+        q.setdefault('topic', '2D Shapes')
+
+        problems = []
+        bbox = q.get('image_bbox')
+        if not bbox or len(bbox) != 4:
+            problems.append('no box was given for the shape, so there is no picture to name')
+        answers = [a for a in (q.get('answers') or []) if isinstance(a, dict)]
+        correct = [a for a in answers if a.get('is_correct')]
+        if len(correct) != 1:
+            problems.append(
+                f'{len(correct)} options are ticked correct (there must be exactly one)')
+        elif len(answers) < 2:
+            problems.append('only one option was offered — a choice needs distractors')
+        if problems:
+            q['needs_review'] = True
+            reason = 'Name-the-shape item: ' + '; '.join(problems) + '.'
+            existing = (q.get('review_reason') or '').strip()
+            q['review_reason'] = f'{existing} {reason}'.strip()
+    return count
+
+
+def _classify_page_chunk(client, system, pages, total_page_count):
     """Classify one chunk of pages in a single streamed Claude call.
 
     Each page carries its absolute page_num label, so the returned image_bbox
     page numbers are absolute — chunks can be merged without remapping. Raises
     ValueError if no structured result comes back.
-
-    ``shape_naming`` swaps the user-facing instructions for the name-the-shape
-    workflow (one question per individual shape).
     """
-    if shape_naming:
-        intro = (
-            f"These pages are part of a {total_page_count}-page shapes worksheet. "
-            "I'm sending each page as a screenshot. Generate one 'name the shape' "
-            "question for EACH individual shape using the classify_worksheet_questions tool."
-        )
-    else:
-        intro = (
-            f"These pages are part of a {total_page_count}-page homework worksheet. "
-            "I'm sending each page as a screenshot. Extract ALL questions on these "
-            "pages using the classify_worksheet_questions tool."
-        )
+    intro = (
+        f"These pages are part of a {total_page_count}-page homework worksheet. "
+        "I'm sending each page as a screenshot. Extract ALL questions on these "
+        "pages using the classify_worksheet_questions tool."
+    )
     # The model sometimes reports a page's POSITION in this request instead of
     # its number (page 7, sent third in the chunk 5–8, came back as page 3 and
     # its figure was cropped from page 3). Name the real numbers up front; the
@@ -1566,17 +1609,7 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
                 f"Text: {page['text'][:600]}]"
             ),
         })
-    if shape_naming:
-        closing = (
-            "Generate one question per INDIVIDUAL shape on these pages. For each shape: "
-            "question_text=\"What is the name of this shape?\", question_type=multiple_choice, "
-            "has_image=true, and image_bbox [left, top, right, bottom] tightly around ONLY "
-            "that single shape in the page screenshot's pixel coordinates. Provide the correct "
-            "shape name plus 3 plausible wrong shape names as answers. "
-            "Use the classify_worksheet_questions tool now."
-        )
-    else:
-        closing = (
+    closing = (
             "Extract ALL questions on these pages. Set has_image=true ONLY when the question "
             "cannot be answered from its text alone — the figure carries information the wording "
             "does not (e.g. an unlabelled shape to measure, a graph to read off, a diagram whose "
@@ -1598,6 +1631,10 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
             "showing the vertex, the intercepts and the axis of symmetry\" "
             "(question_type sketch_graph, with sketch_spec) — are the "
             "exception: the app draws those, so keep them auto. "
+            "A sheet, grid or row that just DISPLAYS shapes to identify is one "
+            "name_the_shape question PER shape, each with has_image=true and a tight "
+            "image_bbox around only that shape (rule 19) — alongside the page's other "
+            "questions. "
             "Use the classify_worksheet_questions tool now."
         )
     content_blocks.append({
@@ -1658,6 +1695,7 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
                 if from_label:
                     q['source_number'] = from_label
             q['question_text'] = _strip_question_label(raw_text)
+    _normalise_name_the_shape(result['questions'])
     result['usage'] = {
         'input_tokens': response.usage.input_tokens,
         'output_tokens': response.usage.output_tokens,
@@ -1666,8 +1704,7 @@ def _classify_page_chunk(client, system, pages, total_page_count, shape_naming=F
     return result
 
 
-def _classify_chunk_adaptive(client, system, pages, total_page_count,
-                             shape_naming=False, report=None):
+def _classify_chunk_adaptive(client, system, pages, total_page_count, report=None):
     """Classify a chunk, halving it and retrying if the model runs out of output.
 
     A chunk that overflows max_tokens returns nothing usable, and one such chunk
@@ -1680,8 +1717,7 @@ def _classify_chunk_adaptive(client, system, pages, total_page_count,
     """
     report = report or (lambda _msg: None)
     try:
-        return _classify_page_chunk(client, system, pages, total_page_count,
-                                    shape_naming=shape_naming)
+        return _classify_page_chunk(client, system, pages, total_page_count)
     except ChunkTooDenseError:
         if len(pages) == 1:
             raise ValueError(
@@ -1699,8 +1735,7 @@ def _classify_chunk_adaptive(client, system, pages, total_page_count,
         report(f'Page {pages[0]["page_num"]}–{pages[-1]["page_num"]} is dense — '
                f'reading it in smaller pieces…')
         return _merge_chunk_results([
-            _classify_chunk_adaptive(client, system, half, total_page_count,
-                                     shape_naming=shape_naming, report=report)
+            _classify_chunk_adaptive(client, system, half, total_page_count, report=report)
             for half in halves
         ])
 
@@ -1734,16 +1769,13 @@ def _merge_chunk_results(results):
 
 
 def classify_worksheet_questions(extracted_pages, existing_topics, existing_levels,
-                                 shape_naming=False, progress=None):
+                                 progress=None):
     """Send page screenshots to Claude and get structured questions with image bboxes.
 
     Multi-page worksheets are split into page-chunks classified *concurrently*
     (CPP: speed). Each chunk generates a fraction of the output and they run at
     the same time, so wall-clock ≈ the slowest chunk rather than the sum. Single
     short worksheets fall through to one call. Results are merged in page order.
-
-    ``shape_naming`` switches to the name-the-shape prompt: one auto-generated
-    "What is the name of this shape?" question per individual shape.
 
     Pages that carry no questions — a bubble answer sheet, a worked answer key —
     are detected from their text and never sent, so they cost nothing and can't
@@ -1755,7 +1787,7 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
     """
     report = progress or (lambda _msg: None)
     client = _get_anthropic_client()
-    system = _build_system_prompt(existing_topics, existing_levels, shape_naming=shape_naming)
+    system = _build_system_prompt(existing_topics, existing_levels)
 
     with_screenshots = [p for p in extracted_pages['pages'] if p.get('screenshot')]
     pages = with_screenshots[:WORKSHEET_PAGE_CAP]
@@ -1800,14 +1832,14 @@ def classify_worksheet_questions(extracted_pages, existing_topics, existing_leve
     if len(chunks) == 1:
         report(f'Reading {len(pages)} page(s)…')
         result = _classify_chunk_adaptive(
-            client, system, chunks[0], total, shape_naming=shape_naming, report=report)
+            client, system, chunks[0], total, report=report)
     else:
         report(f'Reading {len(pages)} pages in {len(chunks)} sections…')
         ordered = [None] * len(chunks)
         with ThreadPoolExecutor(max_workers=min(WORKSHEET_MAX_PARALLEL, len(chunks))) as pool:
             futures = {
                 pool.submit(_classify_chunk_adaptive, client, system, chunk, total,
-                            shape_naming=shape_naming, report=report): idx
+                            report=report): idx
                 for idx, chunk in enumerate(chunks)
             }
             for done, fut in enumerate(as_completed(futures), start=1):
@@ -1926,7 +1958,30 @@ def _render_clean_diagram(fitz_page, clip_rect, dpi=150):
     return pix
 
 
-def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
+def _page_clusters(fitz_page, cache=None):
+    """The page's drawing clusters, computed once per page when ``cache`` is given.
+
+    ``cluster_drawings()`` walks every path on the page. On a textbook page
+    with 10,000 decorative paths that is ~0.8 s, and the crop path used to call
+    it two or three times PER FIGURE — a 13-page algebra booklet spent 36 s of
+    its render phase clustering the same four pages over and over. ``cache`` is
+    a dict the caller keeps for one render run, keyed by page number; without
+    it (the re-crop tool, ai_import) the clusters are simply computed. Returns
+    ``None`` when PyMuPDF cannot cluster the page.
+    """
+    key = fitz_page.number
+    if cache is not None and key in cache:
+        return cache[key]
+    try:
+        clusters = fitz_page.cluster_drawings()
+    except Exception:
+        clusters = None
+    if cache is not None:
+        cache[key] = clusters
+    return clusters
+
+
+def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50, clusters=None):
     """
     Return the tight bounding rect of the vector drawing elements that BELONG to
     *search_rect* (in PDF points) — i.e. whose centre lies inside it.
@@ -1949,10 +2004,8 @@ def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
     # (number lines, grids, geometry) are zero-area, so an area filter on them
     # would discard line-art figures entirely. cluster_drawings() bounds them
     # correctly.
-    try:
-        clusters = fitz_page.cluster_drawings()
-    except Exception:
-        return None
+    if clusters is None:
+        clusters = _page_clusters(fitz_page)
     if not clusters:
         return None
 
@@ -2002,7 +2055,8 @@ def _tight_drawings_rect(fitz_page, search_rect, min_area_pts=50):
     return tight if tight.is_valid and tight.width > 10 and tight.height > 10 else None
 
 
-def _smart_diagram_rect(fitz_page, search_rect, min_area_pts=50, gap_tol=18):
+def _smart_diagram_rect(fitz_page, search_rect, min_area_pts=50, gap_tol=18,
+                        clusters=None):
     """
     Decide the crop rect for a diagram that lives inside *search_rect* (PDF points).
 
@@ -2021,12 +2075,24 @@ def _smart_diagram_rect(fitz_page, search_rect, min_area_pts=50, gap_tol=18):
     """
     import fitz
 
-    core = _tight_drawings_rect(fitz_page, search_rect, min_area_pts=min_area_pts)
+    core = _tight_drawings_rect(fitz_page, search_rect, min_area_pts=min_area_pts,
+                                clusters=clusters)
     if core is None:
         return None
 
     page_rect = fitz_page.rect
     max_label_w = 0.5 * page_rect.width  # wider than this ⇒ running text, not a label
+
+    # A label is kept WHOLE or not at all. The crop is clamped to the model's
+    # box, so a label absorbed and then clamped came out sliced — a loose box
+    # around a prism kept "Volume = l" and "Surface Ar" from the formulas beside
+    # it. A narrow label may now sit up to ``label_reach`` points past the box
+    # and still be taken in full (an axis number the box just missed); a block
+    # that reaches further than that is left out entirely.
+    label_reach = 24
+    envelope = fitz.Rect(search_rect.x0 - label_reach, search_rect.y0 - label_reach,
+                         search_rect.x1 + label_reach, search_rect.y1 + label_reach)
+    keep = fitz.Rect(search_rect)    # the clamp: the box plus every label absorbed
 
     grown = fitz.Rect(core)
     for b in fitz_page.get_text('blocks'):
@@ -2036,6 +2102,8 @@ def _smart_diagram_rect(fitz_page, search_rect, min_area_pts=50, gap_tol=18):
         br = displayed_rect(fitz_page, fitz.Rect(b[0], b[1], b[2], b[3]))
         if br.width > max_label_w:
             continue                 # running text — never an attached label
+        if not envelope.contains(br):
+            continue                 # would be sliced by the clamp — whole or nothing
         # Gap from the diagram core (measured against the core, NOT the growing
         # rect, so one absorbed label can't chain the crop down to the sentence).
         # Labels above the core count too — e.g. a "North"/title/axis-max sitting
@@ -2047,13 +2115,14 @@ def _smart_diagram_rect(fitz_page, search_rect, min_area_pts=50, gap_tol=18):
         dy = max(core.y0 - br.y1, br.y0 - core.y1, 0.0)
         if dx <= gap_tol and dy <= gap_tol:
             grown.include_rect(br)   # absorb the attached label
+            keep.include_rect(br)    # …and let the clamp keep all of it
 
     margin = 4
     grown = fitz.Rect(grown.x0 - margin, grown.y0 - margin,
                       grown.x1 + margin, grown.y1 + margin)
-    # Clamp to the search region so absorbing a label can't pull the crop onto a
-    # neighbouring figure on a multi-figure page.
-    grown.intersect(search_rect)
+    # Clamp to the search region (plus the labels taken whole) so absorbing a
+    # label can't pull the crop onto a neighbouring figure on a multi-figure page.
+    grown.intersect(keep)
     return grown if grown.is_valid and grown.width > 10 and grown.height > 10 else None
 
 
@@ -2095,7 +2164,7 @@ def _region_has_raster_image(fitz_page, search_rect, min_overlap_frac=0.12):
     return False
 
 
-def _region_has_drawing(fitz_page, search_rect, min_area_pts=50):
+def _region_has_drawing(fitz_page, search_rect, min_area_pts=50, clusters=None):
     """
     Return True if a (non page-border) vector figure cluster overlaps *search_rect*.
 
@@ -2105,9 +2174,9 @@ def _region_has_drawing(fitz_page, search_rect, min_area_pts=50):
     """
     import fitz
 
-    try:
-        clusters = fitz_page.cluster_drawings()
-    except Exception:
+    if clusters is None:
+        clusters = _page_clusters(fitz_page)
+    if not clusters:
         return False
     page_rect = fitz_page.rect
     page_area = page_rect.width * page_rect.height
@@ -2237,6 +2306,8 @@ def render_question_images(doc, extracted_pages, classified_result, progress=Non
     report = progress or (lambda _msg: None)
     pages_by_num = {p['page_num']: p for p in extracted_pages['pages']}
     extracted_images = {}
+    # Drawing clusters per page, computed once per run (see _page_clusters).
+    cluster_cache = {}
 
     questions = classified_result.get('questions', [])
     with_images = sum(1 for q in questions if q.get('has_image'))
@@ -2311,7 +2382,8 @@ def render_question_images(doc, extracted_pages, classified_result, progress=Non
             # actual vector drawing plus its attached labels (e.g. A/B/C/D) so
             # stray question text below the diagram is excluded.
             search_rect = fitz.Rect(pt0, pt1, pt2, pt3)
-            clip_rect = _smart_diagram_rect(fitz_page, search_rect)
+            clusters = _page_clusters(fitz_page, cluster_cache)
+            clip_rect = _smart_diagram_rect(fitz_page, search_rect, clusters=clusters)
             render_dpi = None
             if clip_rect is None:
                 # Couldn't snap to a tight figure. Render Claude's bbox as-is when
@@ -2319,14 +2391,14 @@ def render_question_images(doc, extracted_pages, classified_result, progress=Non
                 # PDF) or a vector cluster that overlaps the region. Only when
                 # there is neither do we treat the bbox as spurious (it points at
                 # plain text) and drop it — the "totally irrelevant image" case.
-                if (_region_has_raster_image(fitz_page, search_rect)
-                        or _region_has_drawing(fitz_page, search_rect)):
+                has_drawing = _region_has_drawing(fitz_page, search_rect, clusters=clusters)
+                if has_drawing or _region_has_raster_image(fitz_page, search_rect):
                     clip_rect = fitz.Rect(pt0, pt1, pt2, min(pdf_h, pt3 + 20))
                     # A region that is only a scan gains nothing from print DPI:
                     # rendering a 180-DPI photocopy at 300 DPI just upsamples
                     # it into a multi-megabyte PNG. Stop at the scan's own
                     # resolution (vector regions keep the full render DPI).
-                    if not _region_has_drawing(fitz_page, search_rect):
+                    if not has_drawing:
                         native = raster_native_dpi(fitz_page, clip_rect)
                         if native:
                             render_dpi = max(72, min(IMAGE_RENDER_DPI, int(native)))
@@ -2463,16 +2535,12 @@ def recrop_pdf_region(pdf_bytes, page_index, frac_box, dpi=None, snap=False):
 # ---------------------------------------------------------------------------
 
 def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
-                                   shape_naming=False, progress=None,
-                                   page_selection=None):
+                                   progress=None, page_selection=None):
     """
     Full pipeline: PDF → page screenshots → AI classify → render image regions.
 
     Keeps the fitz.Document open throughout so we can render clips from
     the original PDF vectors rather than cropping JPEG screenshots.
-
-    ``shape_naming`` enables name-the-shape mode: pages are rendered at a higher
-    DPI and Claude emits one "name this shape" question per individual shape.
 
     ``page_selection`` is the teacher's print-dialog style page spec (``"2-7, 9"``;
     blank/``None`` means every page — see ``worksheets/page_selection.py``). Only
@@ -2506,7 +2574,7 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
         selected = parse_page_selection(page_selection, len(doc))
         summary = selection_summary(page_selection, selected, len(doc))
 
-        # Step 1: render pages + collect text (higher DPI in shape mode for tighter crops)
+        # Step 1: render pages + collect text
         if summary['excluded']:
             report(
                 f'Opening the PDF — reading page(s) {summary["selected_label"]} '
@@ -2514,15 +2582,11 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
             )
         else:
             report(f'Opening the PDF ({len(doc)} page(s))…')
-        extracted_pages = extract_worksheet_pages(
-            doc, screenshot_dpi=SHAPE_NAMING_DPI if shape_naming else None,
-            selected_pages=selected,
-        )
+        extracted_pages = extract_worksheet_pages(doc, selected_pages=selected)
 
         # Step 2: AI classification (gets question text, type, answers, image bboxes)
         result = classify_worksheet_questions(
-            extracted_pages, existing_topics, existing_levels, shape_naming=shape_naming,
-            progress=report,
+            extracted_pages, existing_topics, existing_levels, progress=report,
         )
         result['page_selection'] = summary
 
@@ -2558,6 +2622,18 @@ def extract_and_classify_worksheet(pdf_file, existing_topics, existing_levels,
         result, extracted_images = render_question_images(
             doc, extracted_pages, result, progress=report,
         )
+
+        # Step 3a: a question whose wording points at a picture ("tick the
+        # cylinder", "the three shapes shown") but which ended the crop phase
+        # with no image is unanswerable as imported — whether the model set
+        # has_image=false or its box held no figure and was dropped. Route it
+        # to review with the reason. Deterministic; mirrors the AI import.
+        from ai_import.verification import flag_missing_figures
+        figureless = flag_missing_figures(result.get('questions'))
+        if figureless:
+            logger.info(
+                '%s question(s) flagged for review: the wording refers to a '
+                'picture but no image was attached.', figureless)
 
         # Step 3b: turn each "colour all the triangles" crop into a traced
         # shape_spec. Runs here because it needs the finished crops, and here

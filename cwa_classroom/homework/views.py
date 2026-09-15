@@ -1968,8 +1968,6 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             level_number__lte=12,
         ).values('level_number', 'display_name'))
 
-        shape_naming = request.POST.get('shape_naming') == 'on'
-
         # Which pages to extract ("2-7, 9"; blank = all). Validated here against
         # the real PDF so a bad range is an immediate form error rather than a
         # background job the teacher only sees fail minutes later.
@@ -2016,7 +2014,6 @@ class HomeworkPDFUploadView(RoleRequiredMixin, View):
             pdf_filename=pdf_file.name,
             homework_title=hw_title,
             page_selection=page_selection,
-            shape_naming=shape_naming,
             status=HomeworkUploadSession.STATUS_PROCESSING,
         )
         session.pdf_file.save(pdf_file.name, ContentFile(pdf_bytes), save=True)
@@ -2669,8 +2666,13 @@ class HomeworkPDFConfirmView(RoleRequiredMixin, View):
         from classroom.models import ClassRoom
         classrooms = _assignable_classrooms(request.user)
 
+        from ai_import.review_points import unreviewed_questions
+
         return render(request, self.template_name, {
             'session': session,
+            # Flagged questions the teacher submitted without ticking — the
+            # confirm click is what actually creates them.
+            'unreviewed': unreviewed_questions(data.get('questions', [])),
             'included_count': len(included),
             'excluded_count': excluded_count,
             'total_count': len(data.get('questions', [])),

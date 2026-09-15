@@ -652,14 +652,35 @@ MISSING_FIGURE = 'MISSING-FIGURE'
 # 20cm") are deliberately excluded — those are spelled out in the text and point
 # at no picture, so requiring a definite/deictic marker in front of the visual
 # noun keeps the false-positive rate down.
+# A thing that is only there as a picture: a shape or solid the student is
+# asked to pick out ("tick the cylinder", "circle the smallest square").
+_PICTURED_NOUN = (
+    r'(?:shapes?|solids?|objects?|pictures?|figures?|'
+    r'cylinders?|cubes?|cuboids?|cones?|spheres?|pyramids?|prisms?|'
+    r'triangles?|squares?|rectangles?|circles?|ovals?|ellipses?|rhombus(?:es)?|'
+    r'pentagons?|hexagons?|heptagons?|octagons?|quadrilaterals?|polygons?|'
+    r'parallelograms?|trapeziums?|kites?)'
+)
+
 FIGURE_REFERENCE_RE = re.compile(
     r'\b(?:'
-    r'(?:this|these|the)\s+'
+    # "this shape", "the diagram", "the three shapes" — up to two words between
+    # the article and the noun so a count or size still reads as a reference.
+    r'(?:this|these|the)\s+(?:\w+\s+){0,2}?'
     r'(?:shape|shapes|diagram|figure|pattern|net|graph|grid|'
     r'number\s+line|clock(?:\s+face)?|picture|image|table|chart|'
-    r'arrangement|tiles?|solid)'
+    r'arrangement|tiles?|solid|solids)'
     r'|shown\s+(?:below|above|opposite|here|in|on)'
     r'|as\s+shown'
+    # "Tick the cylinder", "Circle the smallest square", "Colour all the
+    # triangles": a selection verb aimed at a pictured shape. The object must be
+    # a shape/solid noun, so "circle the number that is more than twenty" —
+    # answerable from printed options — is not swept in.
+    r'|(?:tick|circle|ring|colou?r|shade|cross\s+out|point\s+to)\s+'
+    r'(?:the|each|every|all(?:\s+the)?|one|two|three|four)\s+(?:\w+\s+){0,2}?'
+    + _PICTURED_NOUN +
+    # "the shapes shown", "which of the three shapes shown is the cylinder?"
+    r'|' + _PICTURED_NOUN + r'\s+(?:shown|pictured|drawn|below|above)'
     r')\b',
     re.IGNORECASE,
 )

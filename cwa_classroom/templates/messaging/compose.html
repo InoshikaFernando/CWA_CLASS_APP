@@ -76,7 +76,7 @@
   </div>
 
   <form method="post" action="{% url 'messaging_compose' %}" enctype="multipart/form-data"
-        x-data="composeForm('{% url "messaging_recipient_search" %}', '{% url "messaging_recipient_group" %}', '{{ user_email|escapejs }}', '{{ user_name|escapejs }}', {{ draft_json|default:'null' }}, {{ is_reschedule|lower }})">
+        x-data="composeForm('{% url "messaging_recipient_search" %}', '{% url "messaging_recipient_group" %}', '{{ user_email|escapejs }}', '{{ user_name|escapejs }}', {{ draft_json|default:'null' }}, {{ is_reschedule|lower }}, {{ message_templates_json|default:'[]' }}, '{{ placeholder_pattern|escapejs }}')">
     {% csrf_token %}
     {% if draft %}<input type="hidden" name="draft_pk" value="{{ draft.pk }}">{% endif %}
 
@@ -262,6 +262,35 @@
           </div>
         </div>
         <input type="hidden" name="recipients_bcc" :value="JSON.stringify(bcc.tags)">
+      </div>
+
+      <!-- ── Start from a pre-written message ── -->
+      <div class="px-5 py-3 border-b border-slate-100" x-show="messageTemplates.length">
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="text-[10px] font-bold text-slate-400 tracking-widest w-16 flex-shrink-0 uppercase">Start</span>
+          <template x-for="tpl in messageTemplates" :key="tpl.key">
+            <button type="button" @click="applyTemplate(tpl.key)" :title="tpl.description"
+                    :class="activeTemplate === tpl.key
+                              ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                              : 'border-slate-200 bg-white text-slate-500 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700'"
+                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-[11px] font-semibold transition-all shadow-sm">
+              <span x-text="tpl.name"></span>
+            </button>
+          </template>
+          <button type="button" @click="startBlank()"
+                  :class="activeTemplate === ''
+                            ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                            : 'border-slate-200 bg-white text-slate-500 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700'"
+                  class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-[11px] font-semibold transition-all shadow-sm"
+                  title="Start from a blank page">
+            Write my own
+          </button>
+        </div>
+        <p x-show="unfilledPlaceholders.length" x-cloak
+           class="mt-2 ml-16 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+          Fill in <span class="font-mono font-semibold" x-text="unfilledPlaceholders.join(', ')"></span>
+          before this can be sent.
+        </p>
       </div>
 
       <!-- ── Subject ── -->
@@ -644,6 +673,10 @@
               <li x-show="!scheduleValid" class="flex items-center gap-2">
                 <span class="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0"></span>Valid send date &amp; time
               </li>
+              <li x-show="unfilledPlaceholders.length" class="flex items-start gap-2">
+                <span class="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0 mt-1"></span>
+                <span>Replace <span class="font-mono" x-text="unfilledPlaceholders.join(', ')"></span></span>
+              </li>
             </ul>
             <div class="absolute top-full right-5 border-4 border-transparent border-t-slate-900"></div>
           </div>
@@ -656,7 +689,7 @@
 </div>
 
 <script>
-function composeForm(searchUrl, groupUrl, selfEmail, selfName, draft, isEditing) {
+function composeForm(searchUrl, groupUrl, selfEmail, selfName, draft, isEditing, messageTemplates, placeholderPattern) {
   draft = draft || {};
 
   function makeField(tags) {
@@ -675,11 +708,22 @@ function composeForm(searchUrl, groupUrl, selfEmail, selfName, draft, isEditing)
     showSchedule: !!draft.frequency && draft.frequency !== 'now',
     subject:      draft.subject  || '',
     bodyHtml:     draft.body_html || '',
+
+    // ── Pre-written messages ──────────────────────────────────────────────
+    messageTemplates: messageTemplates || [],
+    templatePickerOpen: false,
+    activeTemplate: '',
     attachments: [],
     attachError: null,
-    groupLoading: { student: false, staff: false, parent: false },
+    groupLoading: { student: false, staff: false, parent: false,
+                    student_unsubscribed: false, parent_unsubscribed: false },
     groupError: null,
-    recipientGroups: [['student','All Students'],['staff','All Staff'],['parent','All Parents']],
+    // The last two reach the families a promotion is actually for. Mailing
+    // "All Students" instead offers a subscription to people already paying
+    // for one, so they are separate chips rather than a filter on that one.
+    recipientGroups: [['student','All Students'],['staff','All Staff'],['parent','All Parents'],
+                      ['student_unsubscribed','Unsubscribed Students'],
+                      ['parent_unsubscribed','Their Parents']],
 
     // ── Schedule state ────────────────────────────────────────────────────────
     frequency:    draft.frequency     || 'now',
@@ -710,10 +754,22 @@ function composeForm(searchUrl, groupUrl, selfEmail, selfName, draft, isEditing)
       // weekly / monthly: need a start date and time
       return !!this.startsAt && !!this.scheduleTime;
     },
+    // Anything of the form [[CODE]] the sender was meant to replace and did
+    // not. Checked on every keystroke rather than at submit: finding out that
+    // the message is unsendable at the moment you press Send, with no idea
+    // why, is worse than not offering templates at all.
+    get unfilledPlaceholders() {
+      const re = new RegExp(placeholderPattern, 'g');
+      const found = new Set();
+      for (const m of (this.subject || '').matchAll(re)) found.add(m[0]);
+      for (const m of (this.bodyHtml || '').matchAll(re)) found.add(m[0]);
+      return Array.from(found);
+    },
     get canSend() {
       return this.to.tags.length > 0
         && this.subject.trim().length > 0
         && this._bodyText().length > 0
+        && this.unfilledPlaceholders.length === 0
         && this.scheduleValid;
     },
     get canDraft() {
@@ -902,6 +958,37 @@ function composeForm(searchUrl, groupUrl, selfEmail, selfName, draft, isEditing)
       this.bodyHtml = this.$refs.editor.innerHTML;
     },
 
+    // ── Pre-written messages ─────────────────────────────────────────────────
+    applyTemplate(key) {
+      const tpl = this.messageTemplates.find(t => t.key === key);
+      if (!tpl) return;
+      // Overwriting something they typed without asking is the one way this
+      // feature can lose work, so it is the one thing it asks about.
+      const hasContent = this.subject.trim() || this._bodyText();
+      if (hasContent && !window.confirm(
+            'Replace the subject and message you have written?')) {
+        return;
+      }
+      this.subject = tpl.subject;
+      this.bodyHtml = tpl.body_html;
+      if (this.$refs.editor) this.$refs.editor.innerHTML = tpl.body_html;
+      this.activeTemplate = key;
+      this.templatePickerOpen = false;
+    },
+
+    startBlank() {
+      const hasContent = this.subject.trim() || this._bodyText();
+      if (hasContent && !window.confirm(
+            'Clear the subject and message you have written?')) {
+        return;
+      }
+      this.subject = '';
+      this.bodyHtml = '';
+      if (this.$refs.editor) this.$refs.editor.innerHTML = '';
+      this.activeTemplate = '';
+      this.templatePickerOpen = false;
+    },
+
     // ── Recipient group bulk-add (CPP-361) ───────────────────────────────────
     async addGroup(role) {
       this.groupLoading[role] = true;
@@ -919,7 +1006,12 @@ function composeForm(searchUrl, groupUrl, selfEmail, selfName, draft, isEditing)
             added++;
           }
         }
-        if (added === 0 && data.results.length > 0) {
+        if (data.results.length === 0) {
+          // Silence here reads as a broken button. It is a real answer for the
+          // unsubscribed groups in particular — a school where everyone is
+          // paying is the good outcome, not a failure.
+          this.groupError = 'Nobody is in this group right now.';
+        } else if (added === 0) {
           this.groupError = 'All members of this group are already in the To field.';
         }
       } catch(e) {

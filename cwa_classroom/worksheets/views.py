@@ -168,7 +168,6 @@ class WorksheetUploadView(RoleRequiredMixin, View):
             pdf_file=pdf_file,
             worksheet_name=worksheet_name,
             page_selection=page_selection,
-            shape_naming=request.POST.get('shape_naming') == 'on',
             status=WorksheetUploadSession.STATUS_PROCESSING,
         )
 
@@ -590,8 +589,13 @@ class WorksheetConfirmView(RoleRequiredMixin, View):
         included = [q for q in data.get('questions', []) if q.get('include', True)]
         excluded_count = len(data.get('questions', [])) - len(included)
 
+        from ai_import.review_points import unreviewed_questions
+
         return render(request, 'worksheets/confirm.html', {
             'session': session,
+            # Flagged questions the teacher submitted without ticking — the
+            # confirm click is what actually creates them.
+            'unreviewed': unreviewed_questions(data.get('questions', [])),
             'included_count': len(included),
             'excluded_count': excluded_count,
             'total_count': len(data.get('questions', [])),

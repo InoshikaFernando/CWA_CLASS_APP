@@ -119,10 +119,6 @@ class WorksheetUploadSession(models.Model):
         max_length=200, blank=True,
         help_text='Pages to extract, like "2-7, 9". Blank extracts every page.',
     )
-    shape_naming = models.BooleanField(
-        default=False,
-        help_text='Name-the-shape mode: AI generates one "name this shape" question per shape.',
-    )
     extracted_data = models.JSONField(default=dict)
     extracted_images = models.JSONField(default=dict)
     page_count = models.PositiveIntegerField(default=0)

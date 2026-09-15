@@ -1,0 +1,100 @@
+{% extends "email/base_email.html" %}
+
+{% comment %}
+CPP-422 — the note a parent gets when their child's report has nothing in it.
+
+Two audiences behind one template, told apart by `no_subscription`:
+
+  * the subscription is not active — they could not have done the work, so the
+    note explains that and carries the sign-in link and the school's discount
+    code when there is a valid one to give;
+  * the subscription is active and nothing was done — no code, no sales pitch;
+    a nudge and a link.
+
+Deliberately short and non-accusatory either way. This email exists because
+silence was indistinguishable from the school not bothering, and a wall of
+guilt would be worse than the silence it replaces.
+{% endcomment %}
+
+{% block email_title %}{{ student_name }} — {{ period_label }}{% endblock %}
+
+{% block email_content %}
+<div style="background-color:#f8fafc;border-left:4px solid #94a3b8;padding:16px;border-radius:4px;margin-bottom:24px;">
+  <p style="margin:0;color:#334155;font-weight:700;font-size:16px;">
+    {{ student_name }} — {{ period_label }}
+  </p>
+</div>
+
+{% if recipient_name %}
+<p style="margin:0 0 16px;color:#334155;font-size:15px;">Hi {{ recipient_name }},</p>
+{% endif %}
+
+{% if no_subscription %}
+
+  <p style="margin:0 0 16px;color:#334155;font-size:15px;">
+    We put together progress reports for every student{% if school_name %} at {{ school_name }}{% endif %},
+    and {{ student_name }}’s is empty for {{ period_label }} — not because of
+    anything they did or didn’t do, but because <strong>their subscription
+    isn’t active yet</strong>, so they don’t have access to the homework,
+    quizzes and practice a report is built from.
+  </p>
+
+  <p style="margin:0 0 20px;color:#334155;font-size:15px;">
+    Activating it takes a couple of minutes. Sign in with {{ student_name }}’s
+    account and you’ll be taken straight to the subscription step.
+  </p>
+
+  {% if discount_code %}
+  <div style="background-color:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:16px;margin:0 0 20px;text-align:center;">
+    <p style="margin:0 0 6px;color:#854d0e;font-size:13px;">
+      {% if discount_percent == 100 %}
+        Your school has arranged <strong>free access</strong> — enter this code at the subscription step:
+      {% else %}
+        Your school has arranged <strong>{{ discount_percent }}% off</strong> — enter this code at the subscription step:
+      {% endif %}
+    </p>
+    <p style="margin:0;font-family:monospace;font-size:20px;font-weight:700;letter-spacing:1px;color:#854d0e;">
+      {{ discount_code }}
+    </p>
+  </div>
+  {% endif %}
+
+  <p style="margin:0 0 12px;text-align:center;">
+    <a href="{{ login_url }}"
+       style="display:inline-block;background-color:#4f46e5;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">
+      Activate the subscription
+    </a>
+  </p>
+
+  <p style="margin:0;color:#64748b;font-size:13px;text-align:center;">
+    Once it’s active, {{ student_name }}’s next report will have their actual
+    work in it.
+  </p>
+
+{% else %}
+
+  <p style="margin:0 0 16px;color:#334155;font-size:15px;">
+    {{ student_name }}’s progress report for {{ period_label }} is empty —
+    <strong>no homework, quizzes or practice were completed in this period</strong>,
+    so there are no results for us to show you.
+  </p>
+
+  <p style="margin:0 0 20px;color:#334155;font-size:15px;">
+    Everything is there and ready whenever they are. A short session or two is
+    enough to fill the next report.
+  </p>
+
+  <p style="margin:0 0 12px;text-align:center;">
+    <a href="{{ login_url }}"
+       style="display:inline-block;background-color:#4f46e5;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">
+      Sign in and get started
+    </a>
+  </p>
+
+  <p style="margin:0;color:#64748b;font-size:13px;text-align:center;">
+    If you think work was done and should be showing here, reply to this email
+    and we’ll look into it.
+  </p>
+
+{% endif %}
+{% endblock %}

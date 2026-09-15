@@ -85,7 +85,6 @@ def process_homework_pdf(session_id, existing_topics, existing_levels):
 
         output = extract_and_classify_worksheet(
             pdf_io, existing_topics, existing_levels,
-            shape_naming=session.shape_naming,
             progress=report,
             page_selection=session.page_selection,
         )

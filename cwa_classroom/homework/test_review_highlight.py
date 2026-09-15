@@ -50,7 +50,7 @@ class HomeworkReviewHighlightTests(TestCase):
     def _card_classes(html, idx):
         """The class attribute of question card `idx` — so a test asserts on the
         card itself, not on the CSS rule that happens to name the same class."""
-        m = re.search(r'<div class="([^"]*)"\s*\n\s*id="card-%d">' % idx, html)
+        m = re.search(r'<div class="([^"]*)"\s*\n\s*id="card-%d"[ >]' % idx, html)
         assert m, f'card-{idx} not found in the preview'
         return m.group(1)
 
@@ -106,3 +106,48 @@ class HomeworkReviewHighlightTests(TestCase):
         })
         s.refresh_from_db()
         self.assertFalse(s.extracted_data['questions'][0]['review_ack'])
+
+
+class HomeworkReviewPointsTests(HomeworkReviewHighlightTests):
+    """The flagged card says WHAT to check, not just that something is off.
+
+    The reason used to be the review badge's title= tooltip, so a teacher had to
+    hover a 10px badge to learn the verifier disagreed about the answer — and
+    otherwise re-read the whole question to find it. See
+    ai_import.review_points, which splits the reason into per-field points.
+    """
+
+    _REASON = ('Second-opinion check disagreed: verifier answered "4" vs "5". '
+               'Image check: the crop cuts off part of the figure.')
+
+    def test_the_reason_is_visible_on_the_card(self):
+        html = self._preview_html(self._session(review_reason=self._REASON))
+        self.assertIn('What to check', html)
+        self.assertIn('data-testid="review-point-0-0"', html)
+        self.assertIn('verifier answered', html.replace('&quot;', '"'))
+
+    def test_a_point_gets_a_chip_to_the_field_it_is_about(self):
+        html = self._preview_html(self._session(review_reason=self._REASON))
+        self.assertIn('data-review-jump="answer"', html)
+        self.assertIn('data-review-jump="image"', html)
+        self.assertIn('data-review-field="answer"', html)
+        self.assertIn('data-review-field="image"', html)
+
+    def test_the_strip_sits_outside_the_collapsible_body(self):
+        """A collapsed card still has to say what to check — that is the whole
+        point of not having to open the question."""
+        html = self._preview_html(self._session(review_reason=self._REASON))
+        strip = html.index('id="review-points-0"')
+        body = html.index('id="body-0"')
+        self.assertLess(strip, body)
+
+    def test_an_unflagged_question_gets_no_strip(self):
+        html = self._preview_html(self._session())
+        self.assertNotIn('data-testid="review-point-1-0"', html)
+
+    def test_the_submit_gate_and_the_question_numbers_are_on_the_page(self):
+        """The warning names questions, so each card has to know its number."""
+        html = self._preview_html(self._session())
+        self.assertIn('data-testid="review-gate"', html)
+        self.assertIn('data-testid="review-gate-continue"', html)
+        self.assertIn('data-review-number="1"', html)

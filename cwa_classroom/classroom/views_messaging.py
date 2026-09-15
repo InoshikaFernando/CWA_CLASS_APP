@@ -78,6 +78,9 @@ class MessagingComposeView(RoleRequiredMixin, View):
             })
         is_reschedule = draft is not None and draft.status != ScheduledMessage.STATUS_DRAFT
         existing_attachments = list(draft.attachments.all()) if draft else []
+        from classroom.message_templates import (
+            SENDER_PLACEHOLDER_PATTERN, templates_for,
+        )
         return render(request, 'messaging/compose.html', {
             'school':               school,
             'user_email':           request.user.email or '',
@@ -86,6 +89,8 @@ class MessagingComposeView(RoleRequiredMixin, View):
             'draft_json':           draft_json,
             'is_reschedule':        is_reschedule,
             'existing_attachments': existing_attachments,
+            'message_templates_json': json.dumps(templates_for(school)),
+            'placeholder_pattern':  SENDER_PLACEHOLDER_PATTERN,
         })
 
     def post(self, request):
@@ -339,14 +344,48 @@ class RecipientSearchAPIView(RoleRequiredMixin, View):
 
 class MessagingRecipientGroupAPIView(RoleRequiredMixin, View):
     """
-    GET /admin-dashboard/messaging/api/recipients/group/?role=<student|staff|parent>
+    GET /admin-dashboard/messaging/api/recipients/group/?role=<group>
 
-    Returns all school contacts of the given role — no query filter.
-    Used for "All Students / All Staff / All Parents" bulk-add chips (CPP-361).
+    Returns all school contacts in the given group — no query filter.
+    Used for the bulk-add chips above the To field (CPP-361).
+
+    Groups::
+
+        student               every active student
+        staff                 every active teacher
+        parent                every linked parent
+        student_unsubscribed  students with no live subscription of their own
+        parent_unsubscribed   the parents of those students
+
+    The two unsubscribed groups are how a promotion gets sent to the people it
+    is for. Picking them out by hand does not scale past a class or two, and
+    the alternative — mailing "All Students" — reaches the families who are
+    already paying with an offer to start paying, which is worse than not
+    sending it.
+
+    **Unsubscribed includes students who have never subscribed at all**, not
+    only those who lapsed. They are the larger half of any recruitment list and
+    the easiest half to lose: see :func:`billing.selectors.filter_unsubscribed`
+    for why the obvious query silently drops them.
+
+    A student counts as subscribed on their OWN ``billing.Subscription`` only —
+    the school's plan is deliberately not consulted, or every student of a
+    subscribed institute would be excluded and the chip would return nobody.
 
     Response: { "results": [{ "id", "name", "email", "role" }] }
     """
     required_roles = _MESSAGING_ROLES
+
+    GROUP_STUDENT = 'student'
+    GROUP_STAFF = 'staff'
+    GROUP_PARENT = 'parent'
+    GROUP_STUDENT_UNSUBSCRIBED = 'student_unsubscribed'
+    GROUP_PARENT_UNSUBSCRIBED = 'parent_unsubscribed'
+
+    GROUPS = (
+        GROUP_STUDENT, GROUP_STAFF, GROUP_PARENT,
+        GROUP_STUDENT_UNSUBSCRIBED, GROUP_PARENT_UNSUBSCRIBED,
+    )
 
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
@@ -359,8 +398,10 @@ class MessagingRecipientGroupAPIView(RoleRequiredMixin, View):
 
     def get(self, request):
         role = request.GET.get('role', '')
-        if role not in ('student', 'staff', 'parent'):
-            return JsonResponse({'error': 'Invalid role. Use: student, staff, parent'}, status=400)
+        if role not in self.GROUPS:
+            return JsonResponse(
+                {'error': 'Invalid role. Use: ' + ', '.join(self.GROUPS)},
+                status=400)
 
         school = _get_messaging_school(request.user)
         if not school:
@@ -368,6 +409,11 @@ class MessagingRecipientGroupAPIView(RoleRequiredMixin, View):
 
         results = []
         seen = set()
+
+        if role in (self.GROUP_STUDENT_UNSUBSCRIBED,
+                    self.GROUP_PARENT_UNSUBSCRIBED):
+            return JsonResponse(
+                {'results': self._unsubscribed(school, role)})
 
         if role == 'staff':
             qs = (SchoolTeacher.objects
@@ -410,6 +456,63 @@ class MessagingRecipientGroupAPIView(RoleRequiredMixin, View):
                     results.append(_recipient_result(ps.parent, 'parent'))
 
         return JsonResponse({'results': results})
+
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _unsubscribed(school, role):
+        """The students of *school* with no live subscription, or their parents.
+
+        One queryset feeds both, because the two lists have to describe the same
+        families. Resolving the parents from a separately-built student list
+        would let the two drift the moment either query changed.
+        """
+        from billing.selectors import filter_unsubscribed
+
+        student_ids = list(
+            filter_unsubscribed(
+                SchoolStudent.objects.filter(school=school, is_active=True),
+                path='student__subscription',
+            ).values_list('student_id', flat=True)
+        )
+        if not student_ids:
+            return []
+
+        results = []
+        seen = set()
+
+        if role == MessagingRecipientGroupAPIView.GROUP_STUDENT_UNSUBSCRIBED:
+            qs = (SchoolStudent.objects
+                  .filter(school=school, is_active=True,
+                          student_id__in=student_ids)
+                  .filter(student__email__isnull=False)
+                  .exclude(student__email='')
+                  .select_related('student')
+                  .order_by('student__first_name', 'student__last_name'))
+            for ss in qs:
+                email = ss.student.email
+                if email not in seen:
+                    seen.add(email)
+                    results.append(_recipient_result(ss.student, 'student'))
+            return results
+
+        # The parents of exactly those students. A parent with two children in
+        # the school, one subscribed and one not, is still on this list — they
+        # have a child to subscribe — and appears once, not twice.
+        qs = (ParentStudent.objects
+              .filter(school=school, is_active=True,
+                      student_id__in=student_ids)
+              .filter(parent__email__isnull=False)
+              .exclude(parent__email='')
+              .select_related('parent')
+              .order_by('parent__first_name', 'parent__last_name')
+              .distinct())
+        for ps in qs:
+            email = ps.parent.email
+            if email not in seen:
+                seen.add(email)
+                results.append(_recipient_result(ps.parent, 'parent'))
+        return results
 
 
 # ---------------------------------------------------------------------------
