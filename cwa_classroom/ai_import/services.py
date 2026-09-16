@@ -12,6 +12,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from worksheets.explanation_checks import flag_explanation_problems
+from worksheets.services import NAME_THE_SHAPE_TEXT, NAME_THE_SHAPE_TYPE
 from worksheets.page_attribution import pin_page_enum, resolve_chunk_pages
 from worksheets.pdf_geometry import displayed_rect, raster_native_dpi
 
@@ -556,8 +557,18 @@ QUESTION TYPE RULES (important):
   square, rectangle, ellipse or rhombus). Attach the picture (image_page/image_box) around the
   WHOLE set of shapes — every shape the question covers. Do NOT describe the shapes, their
   positions or their outlines: the app TRACES them from the picture you box. Do NOT generate
-  answers. NOT this type: "name this shape" (one shape — multiple choice), "how many triangles
-  are there?" (a count — short answer), or "draw a triangle".
+  answers. NOT this type: "name this shape" (one shape — see NAME-THE-SHAPE ITEMS below),
+  "tick the cylinder" (pick ONE pictured item — see the next rule), "how many triangles are
+  there?" (a count — short answer), or "draw a triangle".
+- PICK THE PICTURED ITEM: "Tick the cylinder", "Circle the smallest square", "Which of these is
+  a cone?" — the student chooses ONE item from a row or set of PICTURES (shapes, solids,
+  objects). The picture is the question: attach it (image_page + image_box around the WHOLE
+  row/set of pictured items, or the matching image_ref) — never leave the question without its
+  picture. Use "multiple_choice" with options that name POSITIONS only — "The first shape",
+  "The second shape", "The third shape" (or "Shape A/B/C" when the sheet labels them) — and
+  NEVER name or describe what the pictures show ("the can-shaped solid", "the cube"): that gives
+  the answer away and makes the picture pointless. Tick the correct position as is_correct. When
+  the task is instead "every X" among 2D shapes the app can trace, use "shape_select" (above).
 - If the question asks the student to break a number into its PRIME FACTORS — "write 60 as a
   product of its prime factors", "find the prime factorisation of 84", a factor tree or ladder
   drawn around a starting number — use "prime_factorization" and set target_number to the number
@@ -587,6 +598,34 @@ QUESTION TYPE RULES (important):
   and show 2") — put the value(s) in target. Use mode "read" when an arrow is already drawn and the
   student reads its value — put the marked position(s) in given. Every target/given value must land on a
   tick. The app draws the line, so do NOT attach an image. Do NOT generate answers.
+
+NAME-THE-SHAPE ITEMS (detected by you — there is no separate mode):
+A sheet, section, chart, grid or row that DISPLAYS shapes for the student to identify — shapes
+with no question text of their own, or under an instruction like "name each shape", "write the
+name of each shape", "what is this shape called?", possibly with the names already printed
+beside them — is ONE question PER individual shape, emitted alongside whatever ordinary
+questions the same page carries. If a page shows 8 such shapes, return 8 questions; never group
+several shapes into one. For each shape set exactly:
+- question_type = "name_the_shape"
+- question_text = "What is the name of this shape?"
+- source_page = the page the shape is on; image_page = that same page and image_box = a TIGHT
+  box around ONLY that one shape — never a neighbouring shape, and never the shape's printed
+  name, a question number or a heading; a little margin around the shape itself. (Use the
+  matching image_ref instead only when the shape IS one embedded image on its own.)
+- answers = the correct shape name (is_correct=true) plus exactly 3 plausible wrong names a
+  learner might confuse it with (square ↔ rectangle / rhombus; circle ↔ oval; pentagon ↔
+  hexagon; triangle types). Never repeat the correct name as a distractor.
+- validation_type = "auto". difficulty 1 for circle / square / triangle / rectangle, 2 for
+  trapezium / parallelogram / rhombus / pentagon / hexagon / octagon, 3 for 3-D solids.
+- explanation = ONE short sentence on the defining property ("A triangle has 3 straight sides
+  and 3 angles.").
+- subject "Mathematics", strand "Geometry", topic "2D Shapes" (or "3D Shapes" for solids).
+Identify each shape yourself from the picture. A name printed on the sheet is the ANSWER and
+must never appear in question_text. Prefer a specific name only when it is clearly
+distinguishable ("Equilateral triangle", "Rectangle"); otherwise use the general one
+("Triangle", "Quadrilateral"). This is NOT for a shape that is merely the figure of an ordinary
+question ("find the area of this rectangle", "colour the triangles") — that question keeps its
+own type and its figure.
 
 ANSWER BLANK FORMATTING (important):
 - When a question is an equation where the student fills in a missing value, ALWAYS represent
@@ -685,7 +724,10 @@ CLASSIFICATION_TOOL = {
                         "question_text": {"type": "string"},
                         "question_type": {
                             "type": "string",
-                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation", "long_division", "plot_points", "plot_line", "identify_coords", "read_graph", "measure", "number_line", "sketch_graph", "prime_factorization", "shape_select"],
+                            "enum": ["multiple_choice", "true_false", "short_answer", "fill_blank", "calculation", "column_operation", "long_division", "plot_points", "plot_line", "identify_coords", "read_graph", "measure", "number_line", "sketch_graph", "prime_factorization", "shape_select", NAME_THE_SHAPE_TYPE],
+                            # name_the_shape is extractor-only: each item is normalised
+                            # into a multiple_choice question before the preview
+                            # (see _normalise_name_the_shape).
                         },
                         "plane_spec": {
                             "type": "object",
@@ -1234,6 +1276,54 @@ def _apply_computed_angle_answer(q):
         q['explanation'] = explanation
 
 
+def _normalise_name_the_shape(questions):
+    """Turn each ``name_the_shape`` item the model emitted into the multiple-choice
+    question the app renders and grades, marked ``shape_naming`` for the preview.
+
+    The AI import's twin of ``worksheets.services._normalise_name_the_shape``.
+    The type exists only so the model can say "this is a shape to identify" per
+    item; what the bank stores is a multiple-choice question with the shape as
+    its figure. Here a figure is an ``image_ref`` (an embedded image) or an
+    ``image_page`` + ``image_box`` crop. An item with neither, or without exactly
+    one correct option, is routed to review with the reason rather than saved
+    looking complete. Returns how many items were normalised.
+    """
+    count = 0
+    for q in questions or []:
+        if not isinstance(q, dict) or q.get('question_type') != NAME_THE_SHAPE_TYPE:
+            continue
+        count += 1
+        q['question_type'] = 'multiple_choice'
+        q['shape_naming'] = True
+        q['validation_type'] = 'auto'
+        if not (q.get('question_text') or '').strip():
+            q['question_text'] = NAME_THE_SHAPE_TEXT
+        q.setdefault('subject', 'Mathematics')
+        q.setdefault('strand', 'Geometry')
+        q.setdefault('topic', '2D Shapes')
+
+        problems = []
+        box = q.get('image_box')
+        has_crop = bool(q.get('image_page')) and (
+            (isinstance(box, dict) and all(k in box for k in ('x1', 'y1', 'x2', 'y2')))
+            or (isinstance(box, (list, tuple)) and len(box) == 4))
+        if not q.get('image_ref') and not has_crop:
+            problems.append('no box was given for the shape, so there is no picture to name')
+        answers = [a for a in (q.get('answers') or []) if isinstance(a, dict)]
+        correct = [a for a in answers if a.get('is_correct')]
+        if len(correct) != 1:
+            problems.append(
+                f'{len(correct)} options are ticked correct (there must be exactly one)')
+        elif len(answers) < 2:
+            problems.append('only one option was offered — a choice needs distractors')
+        if problems:
+            q['needs_review'] = True
+            reason = 'Name-the-shape item: ' + '; '.join(problems) + '.'
+            existing = (q.get('review_reason') or '').strip()
+            q['review_reason'] = f'{existing} {reason}'.strip()
+    return count
+
+
 def classify_questions(extracted_content, existing_topics, existing_levels):
     """
     Send extracted PDF content to Claude API for classification.
@@ -1295,6 +1385,13 @@ def classify_questions(extracted_content, existing_topics, existing_levels):
 
     if merged is None:
         raise ValueError("AI did not return structured question data. Please try again.")
+
+    # Shapes the model flagged as "identify this" (one per shape, mixed in with
+    # the page's ordinary questions) become the multiple-choice questions the app
+    # grades, before any later check or the preview sees them.
+    shapes = _normalise_name_the_shape(merged.get('questions', []))
+    if shapes:
+        logger.info('%s name-the-shape item(s) normalised to multiple choice.', shapes)
 
     # Safety nets: strip any leading question-number/section label the model copied
     # in, then ensure a missing left operand renders as a blank. Then, for

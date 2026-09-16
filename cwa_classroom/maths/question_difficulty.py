@@ -244,7 +244,7 @@ def wrong_rate_rows(*, limit=TOP_N, min_attempts=MIN_ATTEMPTS, ranked=None):
             # them itself.
             .prefetch_related('answers')
         }
-        given = wrong_answers_given(list(live), cutoffs)
+        given = wrong_answers_given(live.values(), cutoffs)
         for percent, attempts, question_id in page:
             question = live.get(question_id)
             if question is None:
@@ -268,7 +268,31 @@ def wrong_rate_rows(*, limit=TOP_N, min_attempts=MIN_ATTEMPTS, ranked=None):
     return rows
 
 
-def wrong_answers_given(question_ids, cutoffs, top=GIVEN_TOP_N):
+def given_answer_display(question, text):
+    """One recorded answer as the reader of a row has to see it.
+
+    A fill-in-the-blank sentence posts its gaps as JSON, so the row printed the
+    payload: ``{"blanks":["","",""]}`` — which reads as gibberish where the
+    point of the column is recognising at a glance that six children wrote the
+    same thing. ``describe_blank_answer`` is the spelling every other review
+    surface already shows, "150, 190, 210", with an empty gap as "—" so a
+    half-filled sentence reads as half-filled rather than as a shorter answer.
+
+    Applied only to the questions that post such a payload, and it hands back
+    anything that is not one unchanged — a pre-conversion typed answer recorded
+    before the sentence had gaps is still shown exactly as the child typed it.
+    """
+    from .models import Question
+
+    if (question is not None
+            and question.question_type == Question.FILL_BLANK
+            and question.blank_spec):
+        from maths.blank_grading import describe_blank_answer
+        return (describe_blank_answer(text) or '').strip()
+    return text
+
+
+def wrong_answers_given(questions, cutoffs, top=GIVEN_TOP_N):
     """What students actually answered, per question, commonest first.
 
     The rate says a question is costing marks; it cannot say why, and the two
@@ -286,10 +310,16 @@ def wrong_answers_given(question_ids, cutoffs, top=GIVEN_TOP_N):
     ``{question_id: {'top': [{'text', 'count'}], 'others': n}}``. Grouping is
     done by the database, so a question thousands have sat costs one row per
     distinct answer rather than one per child.
+
+    ``questions`` is the live ``Question`` objects, not their ids: how an answer
+    should be *spelled* depends on the question that was asked (see
+    :func:`given_answer_display`), and folding happens after that spelling so
+    two payloads that say the same thing count as one answer given twice.
     """
     from .models import StudentAnswer
 
-    ids = list(question_ids)
+    by_id = {question.id: question for question in questions}
+    ids = list(by_id)
     if not ids:
         return {}
 
@@ -308,6 +338,7 @@ def wrong_answers_given(question_ids, cutoffs, top=GIVEN_TOP_N):
                 .annotate(n=Count('id'))):
         text = (row['selected_answer__answer_text']
                 or row['text_answer'] or '').strip()
+        text = given_answer_display(by_id.get(row['question_id']), text)
         # Folded so "Twelve" and "twelve" are one answer given twelve times
         # rather than two given once — the whole point is spotting the answer
         # many children agreed on. The first spelling seen is what is shown.
@@ -335,7 +366,31 @@ def expected_answer(question):
 
     ``question.answers`` must already be prefetched — this is called once per
     row on a page that has just fetched them.
+
+    A fill-in-the-blank sentence is the one type whose key is NOT its Answer
+    rows: ``Question.grade_text_answer`` routes it to ``grade_fill_blank``,
+    which reads ``blank_spec`` and nothing else, so the rows it may still carry
+    from before the conversion grade nothing at all. Printing them made the
+    panel accuse itself — a row showed a child's answer beside an "accepted"
+    string it matched exactly, and the reviewer then widened the rows again,
+    which could not change the mark and never will. The gaps are listed one per
+    line, because the key IS positional: "150, 190, 210" reads as one typed
+    answer, and reading it that way is the mistake that put a stored row
+    carrying the printed numbers into the key in the first place.
+
+    A spec that is unreadable (``blank_answers`` refuses it) accepts nothing —
+    every answer to it grades wrong whatever the rows say — so it reports
+    nothing accepted rather than falling back to them.
     """
+    from maths.blank_grading import blank_answers
+
+    from .models import Question
+
+    if question.question_type == Question.FILL_BLANK and question.blank_spec:
+        gaps = blank_answers(question.blank_spec)
+        return [f'Blank {index}: {" or ".join(options)}'
+                for index, options in enumerate(gaps, start=1)]
+
     accepted = [answer.answer_text.strip()
                 for answer in question.answers.all()
                 if answer.is_correct and (answer.answer_text or '').strip()]

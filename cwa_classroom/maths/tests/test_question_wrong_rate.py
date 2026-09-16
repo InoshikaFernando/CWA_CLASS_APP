@@ -701,6 +701,123 @@ class AnswersGivenTests(WrongRateTestBase):
 
         self.assertEqual(row['given'], [{'text': '8', 'count': 5}])
 
+    def test_a_fill_blank_row_shows_the_spec_not_the_stale_answer_rows(self):
+        """The half of the panel that was accusing itself.
+
+        A fill_blank question grades against blank_spec and nothing else, so
+        the Answer rows it kept from before the conversion accept nothing. The
+        row used to print them, which showed a child's answer beside an
+        "accepted" string it matched exactly — and every reviewer who read it
+        went and widened the rows, which cannot move the mark.
+        """
+        question = self.question(
+            text='Complete the pattern: 110, 130, __, 170, __, __.',
+            # Exactly the rows Q23578 carries: the missing numbers, plus two a
+            # reviewer added to "accept" a child's typed answer. None grade.
+            options=(('150, 190, 210', True),
+                     ('150,170,190,210', True),
+                     ('150 ,170 ,190 ,210', True)),
+            question_type=Question.FILL_BLANK,
+            blank_spec={'blanks': [{'answers': ['150']},
+                                   {'answers': ['190']},
+                                   {'answers': ['210']}]})
+        self.sit(question, wrong=6)
+
+        row = self.row_for(question)
+
+        self.assertEqual(row['expected'],
+                         ['Blank 1: 150', 'Blank 2: 190', 'Blank 3: 210'])
+
+    def test_a_fill_blank_gap_lists_its_alternatives(self):
+        question = self.question(
+            text='From that age they are expected to ___ for ___ years.',
+            options=(),
+            question_type=Question.FILL_BLANK,
+            blank_spec={'blanks': [{'answers': ['live', 'survive']},
+                                   {'answers': ['67']}]})
+        self.sit(question, wrong=6)
+
+        row = self.row_for(question)
+
+        self.assertEqual(row['expected'],
+                         ['Blank 1: live or survive', 'Blank 2: 67'])
+
+    def test_an_unreadable_spec_accepts_nothing_and_says_so(self):
+        """It must not fall back to the rows, which grade nothing either."""
+        question = self.question(text='Broken spec: ___',
+                                 options=(('42', True),),
+                                 question_type=Question.FILL_BLANK,
+                                 blank_spec={'blanks': [{'answers': []}]})
+        self.sit(question, wrong=6)
+
+        row = self.row_for(question)
+
+        self.assertEqual(row['expected'], [])
+
+    def test_a_fill_blank_answer_is_shown_as_the_gaps_it_filled(self):
+        """The other half: {"blanks":["","",""]} is not a readable answer."""
+        question = self.question(
+            text='Complete the pattern: 110, 130, __, 170, __, __.',
+            options=(),
+            question_type=Question.FILL_BLANK,
+            blank_spec={'blanks': [{'answers': ['150']},
+                                   {'answers': ['190']},
+                                   {'answers': ['210']}]})
+        for student in self.students[:4]:
+            self.typed(question, student, '{"blanks":["","",""]}')
+        for student in self.students[4:6]:
+            self.typed(question, student, '{"blanks":["150","180","210"]}')
+
+        row = self.row_for(question)
+
+        self.assertEqual(row['given'], [{'text': '—, —, —', 'count': 4},
+                                        {'text': '150, 180, 210', 'count': 2}])
+
+    def test_the_same_gaps_fold_together_however_the_payload_was_written(self):
+        """Folding happens after the spelling, or six children who agree read
+        as two groups who do not."""
+        question = self.question(
+            text='Name the shape and its sides: ___ with ___ sides.',
+            options=(),
+            question_type=Question.FILL_BLANK,
+            blank_spec={'blanks': [{'answers': ['hexagon']},
+                                   {'answers': ['6']}]})
+        for index, student in enumerate(self.students[:6]):
+            self.typed(question, student, [
+                '{"blanks": ["pentagon", "5"]}',
+                '{"blanks":["pentagon","5"]}',
+                '{"blanks": ["Pentagon", " 5 "]}',
+                '{"blanks":["pentagon","5"]}',
+                '{"blanks": ["pentagon","5"]}',
+                '{"blanks":["PENTAGON","5"]}',
+            ][index])
+
+        row = self.row_for(question)
+
+        # One answer given six times, not six given once. Which of the six
+        # spellings is the one shown is the database's row order to choose —
+        # the claim here is that they are ONE answer.
+        self.assertEqual(len(row['given']), 1)
+        self.assertEqual(row['given'][0]['count'], 6)
+        self.assertEqual(row['given'][0]['text'].casefold(), 'pentagon, 5')
+
+    def test_an_answer_typed_before_the_conversion_is_shown_as_typed(self):
+        """A payload this cannot read is still the child's own words."""
+        question = self.question(
+            text='Complete the pattern: 110, 130, __, 170, __, __.',
+            options=(),
+            question_type=Question.FILL_BLANK,
+            blank_spec={'blanks': [{'answers': ['150']},
+                                   {'answers': ['190']},
+                                   {'answers': ['210']}]})
+        for student in self.students[:6]:
+            self.typed(question, student, '150 ,170 ,190 ,210')
+
+        row = self.row_for(question)
+
+        self.assertEqual(row['given'],
+                         [{'text': '150 ,170 ,190 ,210', 'count': 6}])
+
     def test_answers_settled_by_a_review_are_not_used_to_explain_a_later_rate(self):
         """The evidence must cover the same answers the percentage does.
 
