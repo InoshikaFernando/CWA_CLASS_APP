@@ -224,8 +224,27 @@
                     </td>
                     <td class="py-2.5 px-2 text-center text-amber-600">{{ row.awards|length }}</td>
                   {% else %}
-                    <td colspan="6" class="py-2.5 px-2 text-center text-xs text-slate-400">
-                      No activity this period — nothing will be sent
+                    {% comment %}
+                      An empty report, and what actually becomes of it. With
+                      whole-school coverage on, this student's parents are sent
+                      a note saying why — so "nothing will be sent" would be
+                      the page contradicting the send (CPP-426). The mark comes
+                      from the same cohort the panel below is built from.
+                    {% endcomment %}
+                    <td colspan="6" class="py-2.5 px-2 text-center text-xs
+                               {% if row.notice_reason %}text-amber-700{% else %}text-slate-400{% endif %}">
+                      {% if row.notice_reason and email_no_data %}
+                        No activity this period — their parents will be sent a
+                        note: {{ row.notice_label|lower }}
+                        {% if row.notice_already_sent %}
+                          <span class="ml-1 opacity-70">(already sent)</span>
+                        {% endif %}
+                      {% elif row.notice_reason %}
+                        No activity this period — covered, but the note is
+                        switched off, so nobody is written to
+                      {% else %}
+                        No activity this period — nothing will be sent
+                      {% endif %}
                     </td>
                   {% endif %}
                   <td class="py-2.5 px-4 text-xs {% if row.audience == 'Nobody (silent)' %}text-slate-400{% else %}text-slate-500{% endif %}">{{ row.audience }}</td>

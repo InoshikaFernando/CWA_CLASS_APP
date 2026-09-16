@@ -266,6 +266,42 @@ def _no_data_rows(school, rows, period_type, start, classroom, subscribed_only):
     ]
 
 
+def _mark_covered(rows, no_data_rows, email_no_data):
+    """Tell each empty row what will actually happen to that student (CPP-426).
+
+    Without this the table kept saying "nothing will be sent" for a student
+    whose parents were about to be sent a note — the page contradicting the
+    panel below it, and the page contradicting the button. That is the precise
+    disagreement this preview exists to prevent, so the two are driven from one
+    computed cohort rather than from two guesses.
+
+    Marks the row only when the STUDENT is in the cohort, which is not the same
+    as the row being empty: a child with maths activity and an empty coding
+    report has something to show this period, so no note goes out and that
+    coding row still says nothing will be sent. Mutates *rows* in place, the
+    way the rest of this view builds them.
+    """
+    covered = {row['student'].id: row for row in no_data_rows}
+    if not covered:
+        return
+
+    for row in rows:
+        if row['has_activity']:
+            continue
+        notice = covered.get(row['student'].id)
+        if notice is None:
+            continue
+        row['notice_reason'] = notice['reason']
+        row['notice_label'] = notice['reason_label']
+        row['notice_no_subscription'] = notice['no_subscription']
+        row['notice_already_sent'] = notice['already_sent']
+        # The "Will send to" column is about who actually hears from this run.
+        # A note goes to the parents, so saying "—" here was wrong in the one
+        # column a reader checks to answer exactly that.
+        if email_no_data:
+            row['audience'] = 'Parents (note)'
+
+
 class ReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
     """What would be sent, for every student in scope, before it is sent."""
 
@@ -360,6 +396,10 @@ class ReportPreviewView(RoleRequiredMixin, ModuleRequiredMixin, View):
             if start is not None else []
         )
         outreach_flags = report_settings.outreach(school)
+        # After the cohort, because the cohort is what decides it.
+        _mark_covered(
+            rows, no_data_rows, outreach_flags['email_parents_no_data'],
+        )
         return render(request, 'progress/report_preview.html', {
             'school': school,
             'schools': schools,
