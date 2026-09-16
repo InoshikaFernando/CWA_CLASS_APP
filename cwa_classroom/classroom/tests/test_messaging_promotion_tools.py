@@ -205,6 +205,18 @@ class PreWrittenMessages(TestCase):
                     self.assertTrue(template.get(field),
                                     f'{field} is missing or empty')
 
+    def test_every_template_addresses_the_parent(self):
+        """Each of these asks somebody to make a decision about money, and that
+        is not a decision a child can make. The recipient list can legitimately
+        include the students themselves, so the greeting is the one place the
+        email says out loud who it is really for."""
+        for template in MESSAGE_TEMPLATES:
+            with self.subTest(template=template['key']):
+                self.assertTrue(
+                    template['body_html'].startswith(
+                        '<p>Dear Parents / Caregivers,</p>'),
+                    f"{template['key']} does not open by addressing the parent")
+
     def test_the_keys_are_unique(self):
         keys = [t['key'] for t in MESSAGE_TEMPLATES]
         self.assertEqual(len(keys), len(set(keys)))

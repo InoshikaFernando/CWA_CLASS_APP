@@ -28,6 +28,13 @@ grey hint box would not have stopped that; a disabled Send button does.
 Kept in Python rather than the HTML so the copy can be tested, reviewed in a
 diff, and reused by anything else that needs it later — and so a typo in a
 price or a promise is caught by a test rather than by a parent.
+
+Every one of these opens **"Dear Parents / Caregivers,"**. Each asks somebody to
+make a decision about money — start a trial, let one lapse, subscribe — and that
+is a decision a child cannot make. The greeting is the one place the email says
+out loud who it is really for, which matters because the recipient list can
+legitimately include the students themselves: for an institute student the
+address on file is usually the guardian's anyway.
 """
 
 #: The marker the compose page scans for, and refuses to send with.
@@ -43,7 +50,7 @@ MESSAGE_TEMPLATES = [
         'description': 'Offer the two-week free code to families who are not subscribed.',
         'subject': 'Two weeks free on {{school_name}} — no card needed',
         'body_html': (
-            '<p>Hi there,</p>'
+            '<p>Dear Parents / Caregivers,</p>'
             '<p>We have opened up <strong>two weeks of free access</strong> to the '
             '{{school_name}} learning hub for your child. Homework, practice '
             'questions and progress tracking — all of it, for a fortnight.</p>'
@@ -71,7 +78,7 @@ MESSAGE_TEMPLATES = [
         'description': 'Three-day warning, before access pauses.',
         'subject': 'Your {{school_name}} free access ends on [[DATE]]',
         'body_html': (
-            '<p>Hi there,</p>'
+            '<p>Dear Parents / Caregivers,</p>'
             '<p>Your child\'s free access to the {{school_name}} learning hub '
             'ends on <strong>[[DATE]]</strong>. We wanted to give you fair '
             'warning rather than let it stop without notice.</p>'
@@ -92,7 +99,7 @@ MESSAGE_TEMPLATES = [
         'description': 'After access pauses — how to pick up where they left off.',
         'subject': 'Your {{school_name}} free access has ended',
         'body_html': (
-            '<p>Hi there,</p>'
+            '<p>Dear Parents / Caregivers,</p>'
             '<p>The free two weeks on the {{school_name}} learning hub have '
             'finished, so your child\'s account is paused for now.</p>'
             '<p>Everything they did is still there. Subscribing picks up exactly '
@@ -110,7 +117,7 @@ MESSAGE_TEMPLATES = [
         'description': 'For families whose subscription has lapsed or was never started.',
         'subject': 'Action needed to keep your {{school_name}} access',
         'body_html': (
-            '<p>Hi there,</p>'
+            '<p>Dear Parents / Caregivers,</p>'
             '<p>Your child\'s {{school_name}} learning account is ready to go, '
             'but it needs a subscription before they can get back in.</p>'
             '<p>It is [[PRICE]] a month, and it covers everything: homework, '
