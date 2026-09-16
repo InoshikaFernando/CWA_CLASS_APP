@@ -64,9 +64,15 @@ option — is routed to ⚠ Review with the reason rather than saved looking com
   screenshot DPI bought nothing — the vision API downsizes an A4 page below 150-DPI
   size anyway, and bbox correctness never depended on it).
 
-### Out of scope
+### The AI import
 
-The `ai_import` flow keeps its own prompt; adding rule 19 there is a follow-up.
+The `ai_import` flow keeps its own prompt, and it now carries the same two rules: rule 19
+(`name_the_shape` in its schema, normalised by `ai_import.services._normalise_name_the_shape`
+into a multiple-choice question with the shape as an `image_page` + `image_box` crop or an
+`image_ref`, marked `shape_naming` for the 🔷 badge on its preview) and rule 5b (a
+"tick the cylinder" question keeps its picture and offers position options). Its existing
+`flag_missing_figures` pass in `ai_import.tasks` is the safety net when the picture is
+still missing.
 
 ## Tests
 
@@ -77,6 +83,9 @@ The `ai_import` flow keeps its own prompt; adding rule 19 there is a follow-up.
   `shape_naming=on` is ignored.
 - `homework/test_shape_naming.py` — the homework upload page has no checkbox; the task
   no longer forwards a mode flag.
+- `ai_import/tests/test_name_the_shape.py` — the AI import prompt carries rules 19 and 5b,
+  its schema the type; items are normalised (an `image_ref` or a page + box counts as the
+  picture), `classify_questions` never lets the type out, and the preview shows the badge.
 
 ---
 
