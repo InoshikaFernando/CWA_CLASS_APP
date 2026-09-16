@@ -152,3 +152,32 @@ def test_emailing_switched_off_is_said_out_loud(
     expect(panel).to_contain_text("Emailing is switched off")
     row = page.get_by_test_id("preview-no-data-row").filter(has_text="Nula Nodata")
     expect(row).to_contain_text("Nothing — emailing is off")
+
+
+def test_an_empty_row_says_the_note_is_coming_not_that_nothing_is(
+        page, live_server, hoi, classroom, enrolled_student):
+    """CPP-426 — the table and the panel below it must agree.
+
+    This row used to read "nothing will be sent" while the panel underneath
+    said a note was going to the same family.
+    """
+    _cover(classroom.school)
+    do_login(page, live_server.url, hoi)
+    page.goto(f"{live_server.url}{PREVIEW_URL}?school={classroom.school.id}&period=weekly")
+
+    row = page.get_by_test_id("preview-row").first
+    expect(row).to_contain_text("their parents will be sent a")
+    expect(row).to_contain_text("Parents (note)")
+    expect(row).not_to_contain_text("nothing will be sent")
+
+
+def test_with_coverage_off_the_row_keeps_the_original_wording(
+        page, live_server, hoi, classroom, enrolled_student):
+    from progress.tests.factories import enable_reports
+
+    enable_reports(classroom.school, kind="school", weekly=True)
+    do_login(page, live_server.url, hoi)
+    page.goto(f"{live_server.url}{PREVIEW_URL}?school={classroom.school.id}&period=weekly")
+
+    expect(page.get_by_test_id("preview-row").first).to_contain_text(
+        "nothing will be sent")

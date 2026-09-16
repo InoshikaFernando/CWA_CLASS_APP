@@ -535,3 +535,124 @@ class PreviewTests(OutreachBase):
         })
 
         self.assertEqual(PeriodReportNotice.objects.count(), 3)
+
+
+class EmptyRowWordingTests(OutreachBase):
+    """What the main table says about a student whose report is empty (CPP-426).
+
+    The table is one row per student per subject; the cohort panel below it is
+    one row per student. They are built from the same computed cohort here
+    precisely so they cannot say opposite things about the same evening — the
+    table used to read "nothing will be sent" for a family whose note was
+    already queued.
+    """
+
+    URL = '/progress/reports/preview/'
+
+    def setUp(self):
+        self.client.force_login(self.hoi)
+
+    def rows(self, **extra):
+        params = {'school': self.school.id, 'period': periods.WEEKLY}
+        params.update(extra)
+        query = '&'.join(f'{k}={v}' for k, v in params.items())
+        response = self.client.get(f'{self.URL}?{query}')
+        return response, {
+            row['student'].username: row for row in response.context['rows']
+        }
+
+    def test_coverage_off_keeps_the_old_wording(self):
+        enable_reports(self.school, weekly=True)
+
+        response, rows = self.rows()
+
+        self.assertIsNone(rows['ws_idle'].get('notice_reason'))
+        self.assertContains(response, 'nothing will be sent')
+
+    def test_an_idle_student_says_their_parents_get_a_note(self):
+        self.cover()
+
+        response, rows = self.rows()
+
+        self.assertEqual(
+            rows['ws_idle']['notice_reason'], outreach.REASON_NO_ACTIVITY,
+        )
+        self.assertContains(response, 'their parents will be sent a')
+        self.assertNotContains(response, 'nothing will be sent')
+
+    def test_an_unsubscribed_student_says_which_reason(self):
+        self.cover()
+
+        _response, rows = self.rows()
+
+        self.assertEqual(
+            rows['ws_unpaid']['notice_reason'],
+            outreach.REASON_NO_SUBSCRIPTION,
+        )
+        self.assertTrue(rows['ws_unpaid']['notice_no_subscription'])
+
+    def test_the_will_send_to_column_names_the_parents(self):
+        """The one column a reader checks to answer exactly this."""
+        self.cover()
+
+        _response, rows = self.rows()
+
+        self.assertEqual(rows['ws_idle']['audience'], 'Parents (note)')
+
+    def test_with_the_note_switched_off_the_row_says_nobody_is_written_to(self):
+        self.cover(email_parents_no_data=False)
+
+        response, rows = self.rows()
+
+        self.assertEqual(
+            rows['ws_idle']['notice_reason'], outreach.REASON_NO_ACTIVITY,
+        )
+        # Covered, but silent — and the row says which, rather than implying
+        # a note that is not coming.
+        self.assertEqual(rows['ws_idle']['audience'], '—')
+        self.assertContains(response, 'the note is')
+
+    def test_an_already_sent_note_is_marked_on_the_row(self):
+        self.cover()
+        self.run_week()
+
+        response, rows = self.rows()
+
+        self.assertTrue(rows['ws_idle']['notice_already_sent'])
+        self.assertContains(response, 'already sent')
+
+    def test_a_student_with_activity_is_untouched(self):
+        self.cover()
+
+        _response, rows = self.rows()
+
+        self.assertTrue(rows['ws_worker']['has_activity'])
+        self.assertIsNone(rows['ws_worker'].get('notice_reason'))
+
+    def test_an_empty_subject_for_an_active_student_still_sends_nothing(self):
+        """Empty row, but the student has something to show elsewhere.
+
+        A child with maths activity and an empty coding report is not in the
+        cohort — no note goes out — so that coding row must keep the original
+        wording rather than promise one.
+        """
+        from classroom.models import Subject
+
+        coding, _ = Subject.objects.get_or_create(
+            slug='coding', school=None, defaults={'name': 'Coding'},
+        )
+        second = make_classroom(self.school, name='Y5 Coding', code='WS000003')
+        second.subject = coding
+        second.save(update_fields=['subject'])
+        enrol(second, self.worker)
+        self.cover()
+
+        _response, rows = self.rows()
+
+        empty = [
+            row for row in _response.context['rows']
+            if row['student'] == self.worker and not row['has_activity']
+        ]
+        self.assertTrue(empty, 'expected an empty coding row for the worker')
+        for row in empty:
+            self.assertIsNone(row.get('notice_reason'))
